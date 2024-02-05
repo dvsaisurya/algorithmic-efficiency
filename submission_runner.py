@@ -438,7 +438,7 @@ def train_once(
 
           _reset_cuda_mem()
 
-        except RuntimeError as e:
+        except Exception as e:
           logging.exception(f'Eval step {global_step} error.\n')
           if 'out of memory' in str(e):
             logging.warning('Error: GPU out of memory during eval during step '
