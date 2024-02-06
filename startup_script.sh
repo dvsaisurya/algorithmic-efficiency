@@ -7,9 +7,9 @@ pip3 install torchvision
 pip install pydub
 DATA_DIR=’~/data’
 python3 datasets/dataset_setup.py --data_dir $DATA_DIR --ogbg
-python3 datasets/dataset_setup.py --data_dir $DATA_DIR --wmt
 pip install wandb
 pip install jraph
 pip install scikit-learn
 pip install sacrebleu
 pip install sentencepiece
+python3 datasets/dataset_setup.py --data_dir $DATA_DIR --wmt
