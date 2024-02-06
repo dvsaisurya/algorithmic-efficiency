@@ -5,7 +5,7 @@ pip3 install -e '.[ogbg]'
 pip3 install -e '.[wmt]'
 pip3 install torchvision
 pip install pydub
-DATA_DIR=’~/data’
+DATA_DIR=’/home/saisurya/data’
 python3 datasets/dataset_setup.py --data_dir $DATA_DIR --ogbg
 pip install wandb
 pip install jraph
