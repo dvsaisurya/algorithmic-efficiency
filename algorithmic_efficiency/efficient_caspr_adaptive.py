@@ -172,7 +172,9 @@ def update_stats(L,R,grad,block_size,b2):
  R = w1*R + w2*jnp.einsum('ijkl,ijkm->ijlm',grad,grad)
  return ShampooLRPair(L=L,R=R)
 
-def update_lambdas(precond,lambd,prev_stat,grad,block_size,b2,count):
+
+
+def update_lambdas(precond,lambd,prev_stat,grad,block_size,b2,count,exponent):
   if len(precond.L.shape)==1:
       return lambd
   mgd_shape = get_merged_shape(grad.shape)
@@ -185,22 +187,30 @@ def update_lambdas(precond,lambd,prev_stat,grad,block_size,b2,count):
   #transpose the grid dimensions to the front
   grad = grad.transpose((0,2,1,3))
   print('changed code')
-  #computing tr(PrtR_{t-1})/n
-  lambdL_coeff = jnp.sum(jnp.sum(precond.R*prev_stat.R,axis=-1),axis=-1)[:,:,jnp.newaxis]/block_size
+  #computing tr(Pr_tR_{t-1})/n
+  tr = lambda x,y: jnp.sum(jnp.sum(x*y,axis=-1),axis=-1)
+  Pr_t = precond.R@precond.R if exponent==2 else precond.R
+
+  # Pr_t = precond.R
+  lambdL_coeff = tr(Pr_t,prev_stat.R)[:,:,jnp.newaxis]/block_size
 
   #computing diag(G_tPr_tG_t^T)/n
-  lambdL_res = jnp.einsum("ijkl,ijlm,ijmk->ijk",grad,precond.R,grad.transpose(0,1,3,2))/block_size
-  
-  
+  lambdL_res = jnp.einsum("ijkl,ijlm,ijmk->ijk",grad,Pr_t,grad.transpose(0,1,3,2))/block_size
+
+
 #   lambdL = jax.lax.cond(count%4000==0,lambda : jnp.ones_like(lambd.L), lambda : jnp.minimum(0.9*lambd.L*lambdL_coeff +(1-0.9)* lambdL_res,1e30))
-  alpha = jnp.maximum((1-count/33333.0),0.0)
+#   alpha = jnp.maximum((1-count/10000.0),0.0)
+  alpha = 1.0
   lambdL = alpha*jnp.minimum(0.8*lambd.L*lambdL_coeff +(1-0.8)* lambdL_res,1e30) + (1-alpha)*jnp.ones_like(lambd.L)
   # jax.debug.print('lambdL {x}', x = jnp.sum(lambdL,axis=-1)[:3,:3])
   #computing tr(PltL_{t-1})/m
-  lambdR_coeff = jnp.sum(jnp.sum(precond.L*prev_stat.L,axis=-1),axis=-1)[:,:,jnp.newaxis]/block_size
+  Pl_t = precond.L@precond.L if exponent==2 else precond.L
+
+  # Pl_t = precond.L
+  lambdR_coeff = tr(Pl_t, prev_stat.L)[:,:,jnp.newaxis]/block_size
 
   #computing diag(G_t^TPl_tG_t)/m
-  lambdR_res = jnp.einsum("ijkl,ijlm,ijmk->ijk",grad.transpose(0,1,3,2),precond.L,grad)/block_size
+  lambdR_res = jnp.einsum("ijkl,ijlm,ijmk->ijk",grad.transpose(0,1,3,2),Pl_t,grad)/block_size
   lambdR =  alpha*jnp.minimum(0.8*lambd.R*lambdR_coeff + (1-0.8)*lambdR_res,1e30) + (1-alpha)*jnp.ones_like(lambd.R)
   # jax.debug.print('lambdR {x}', x = jnp.sum(lambdR,axis=-1)[:3,:3])
 #   lambdR = jax.lax.cond(count%4000==0, lambda: jnp.ones_like(lambd.R), lambda : jnp.minimum(0.9*lambd.R*lambdR_coeff + (1-0.9)*lambdR_res,1e30))
@@ -520,7 +530,7 @@ def scale_by_caspr(
 
 
 
-   lambdas = jax.tree_util.tree_map(lambda p,l,s,u:update_lambdas(p,l,s,u,block_size,b2,count_inc),
+   lambdas = jax.tree_util.tree_map(lambda p,l,s,u:update_lambdas(p,l,s,u,block_size,b2,count_inc,exponent),
                                      preconds,state.lambdas,state.stats,updates,
                                      is_leaf=lambda x: type(x).__name__=='LambdaRLPair' or
                                      type(x).__name__=='ShampooLRPair')
