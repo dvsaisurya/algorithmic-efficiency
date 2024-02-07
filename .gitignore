@@ -8,7 +8,6 @@ venv/
 workdir/
 makefile
 *.out
-*.sh
 *.swp
 */data/
 *events.out.tfevents*
@@ -20,3 +19,4 @@ algorithmic_efficiency/workloads/librispeech_conformer/work_dir
 *.vocab
 wandb/
 *.txt
+eff*/
