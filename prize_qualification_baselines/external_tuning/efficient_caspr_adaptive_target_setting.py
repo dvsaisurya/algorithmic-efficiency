@@ -303,12 +303,23 @@ def update_params(workload: spec.Workload,
                                grad_clip,
                                label_smoothing)
   new_optimizer_state, new_params, new_model_state, loss, grad_norm = outputs
-
+  #compute optimizer metrics:
+  # print(new_optimizer_state)
+  flattened_lambdas,_=jax.tree_flatten(new_optimizer_state[0].lambdas,is_leaf=lambda x: type(x).__name__=='LambdaRLPair')
+  # print([ lambd.L.shape for lambd in flattened_lambdas])
+  lambd = flattened_lambdas[1]
+  
   # Log loss, grad_norm.
   if global_step % 100 == 0 and workload.metrics_logger is not None:
     workload.metrics_logger.append_scalar_metrics(
         {
             'loss': loss[0],
+            'lambdaL_max': jnp.mean(jnp.max(lambd.L,axis=-1)),
+            'lambdaL_condnum': jnp.mean((jnp.max(lambd.L,axis=-1)/(1e-37+jnp.min(lambd.L,axis=-1)))),
+            'lambdaL_mean': jnp.mean(lambd.L),
+            'lambdaR_max': jnp.mean(jnp.max(lambd.R,axis=-1)),
+            'lambdaR_condnum': jnp.mean((jnp.max(lambd.R,axis=-1)/(1e-37+jnp.min(lambd.R,axis=-1)))),
+            'lambdaR_mean': jnp.mean(lambd.R),
             'grad_norm': grad_norm[0],
         }, global_step)
   return (new_optimizer_state, opt_update_fn), new_params, new_model_state

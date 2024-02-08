@@ -201,7 +201,9 @@ def update_lambdas(precond,lambd,prev_stat,grad,block_size,b2,count,exponent):
 #   lambdL = jax.lax.cond(count%4000==0,lambda : jnp.ones_like(lambd.L), lambda : jnp.minimum(0.9*lambd.L*lambdL_coeff +(1-0.9)* lambdL_res,1e30))
   # alpha = jnp.maximum((1-count/10000.0),0.0)
   alpha = 1.0
-  lambdL = alpha*jnp.minimum(0.8*lambd.L*lambdL_coeff +(1-0.8)* lambdL_res,1e30) + (1-alpha)*jnp.ones_like(lambd.L)
+  get_b3 = lambda x:  -0.000012*x + 0.8
+  b3 = get_b3(count)
+  lambdL = alpha*jnp.clip(b3*lambd.L*lambdL_coeff +(1-b3)* lambdL_res,1e-24,1e24) + (1-alpha)*jnp.ones_like(lambd.L)
   # jax.debug.print('lambdL {x}', x = jnp.sum(lambdL,axis=-1)[:3,:3])
   #computing tr(PltL_{t-1})/m
   Pl_t = precond.L@precond.L if exponent==2 else precond.L
@@ -211,9 +213,10 @@ def update_lambdas(precond,lambd,prev_stat,grad,block_size,b2,count,exponent):
 
   #computing diag(G_t^TPl_tG_t)/m
   lambdR_res = jnp.einsum("ijkl,ijlm,ijmk->ijk",grad.transpose(0,1,3,2),Pl_t,grad)/block_size
-  lambdR =  alpha*jnp.minimum(0.8*lambd.R*lambdR_coeff + (1-0.8)*lambdR_res,1e30) + (1-alpha)*jnp.ones_like(lambd.R)
-  # jax.debug.print('lambdR {x}', x = jnp.sum(lambdR,axis=-1)[:3,:3])
+  lambdR =  alpha*jnp.clip(b3*lambd.R*lambdR_coeff + (1-b3)*lambdR_res,1e-24,1e24) + (1-alpha)*jnp.ones_like(lambd.R)
+  # jax.debug.print('lambdR {x}', x = jnp.mean(lambdR))
 #   lambdR = jax.lax.cond(count%4000==0, lambda: jnp.ones_like(lambd.R), lambda : jnp.minimum(0.9*lambd.R*lambdR_coeff + (1-0.9)*lambdR_res,1e30))
+  
   return LambdaRLPair(R=lambdR, L=lambdL)
 
 

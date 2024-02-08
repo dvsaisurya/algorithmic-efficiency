@@ -92,7 +92,8 @@ class BaseOgbgWorkload(spec.Workload):
 
   @property
   def eval_period_time_sec(self) -> int:
-    return 4 * 60
+    # return 4 * 60
+    return 1000000000000000
 
   def _build_input_queue(self,
                          data_rng: jax.random.PRNGKey,
