@@ -199,8 +199,8 @@ def update_lambdas(precond,lambd,prev_stat,grad,block_size,b2,count,exponent):
 
 
 #   lambdL = jax.lax.cond(count%4000==0,lambda : jnp.ones_like(lambd.L), lambda : jnp.minimum(0.9*lambd.L*lambdL_coeff +(1-0.9)* lambdL_res,1e30))
-#   alpha = jnp.maximum((1-count/10000.0),0.0)
-  alpha = 1.0
+  alpha = jnp.maximum((1-count/10000.0),0.0)
+  # alpha = 1.0
   lambdL = alpha*jnp.minimum(0.8*lambd.L*lambdL_coeff +(1-0.8)* lambdL_res,1e30) + (1-alpha)*jnp.ones_like(lambd.L)
   # jax.debug.print('lambdL {x}', x = jnp.sum(lambdL,axis=-1)[:3,:3])
   #computing tr(PltL_{t-1})/m
