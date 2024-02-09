@@ -149,6 +149,10 @@ flags.DEFINE_integer(
     None,
     'Value of rng seed. If None, a random seed will'
     'be generated from hardware.')
+flags.DEFINE_integer(
+    'eval_period',
+    None,
+    'conducts one eval every eval_period')
 flags.DEFINE_boolean('set_pytorch_max_split_size',
                      False,
                      'If true, set pytorch max_split_size_mb to 256')
@@ -355,15 +359,22 @@ def train_once(
 
     train_state['accumulated_submission_time'] += (
         train_step_end_time - train_state['last_step_end_time'])
+    
     # Use 3x the runtime budget for the self-tuning ruleset.
     max_allowed_runtime_sec = (
         workload.max_allowed_runtime_sec if FLAGS.tuning_ruleset == 'external'
         else 3 * workload.max_allowed_runtime_sec)
-    train_state['is_time_remaining'] = (
-        train_state['accumulated_submission_time'] < max_allowed_runtime_sec)
+    
+    #uncommented this to let the training_complete only after max_global_steps
+    # train_state['is_time_remaining'] = (
+    #     train_state['accumulated_submission_time'] < max_allowed_runtime_sec)
+
     # Check if submission is eligible for an untimed eval.
-    if ((train_step_end_time - train_state['last_eval_time']) >=
-        workload.eval_period_time_sec or train_state['training_complete']):
+    # if ((train_step_end_time - train_state['last_eval_time']) >=
+    #     workload.eval_period_time_sec or train_state['training_complete']):
+    #conducting eval every 1000 steps instead of every eval_period_time_sec time.
+    eval_period = 1000 if FLAGS.eval_period is None else FLAGS.eval_period
+    if global_step%eval_period==0 or train_state['training_complete']:
       with profiler.profile('Evaluation'):
         del batch
         _reset_cuda_mem()
@@ -539,6 +550,8 @@ def score_submission_on_workload(workload: spec.Workload,
       # Generate a new seed from hardware sources of randomness for each trial.
       if not rng_seed:
         rng_seed = struct.unpack('I', os.urandom(4))[0]
+      
+      
       logging.info('Using RNG seed %d', rng_seed)
       rng = prng.PRNGKey(rng_seed)
       # Because we initialize the PRNGKey with only a single 32 bit int, in the
@@ -587,6 +600,8 @@ def score_submission_on_workload(workload: spec.Workload,
       num_evals = len(all_metrics[hi]['eval_results'])
       logging.info(f'Total number of evals: {num_evals}')
       logging.info('=' * 20)
+      #use different rng seed for different trial
+      rng_seed = int(rng_seed)+1
     score = min(all_timings)
   else:
     if tuning_search_space is not None:
