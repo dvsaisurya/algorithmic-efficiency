@@ -601,7 +601,7 @@ def score_submission_on_workload(workload: spec.Workload,
       logging.info(f'Total number of evals: {num_evals}')
       logging.info('=' * 20)
       #use different rng seed for different trial
-      rng_seed = int(rng_seed)+1
+      # rng_seed = int(rng_seed)+1
     score = min(all_timings)
   else:
     if tuning_search_space is not None:
