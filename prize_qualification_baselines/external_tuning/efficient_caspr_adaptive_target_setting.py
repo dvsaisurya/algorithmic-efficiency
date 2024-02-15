@@ -320,7 +320,7 @@ def update_params(workload: spec.Workload,
             'lambdaR_max': jnp.mean(jnp.max(lambd.R,axis=-1)),
             'lambdaR_condnum': jnp.mean((jnp.max(lambd.R,axis=-1)/(1e-37+jnp.min(lambd.R,axis=-1)))),
             'lambdaR_mean': jnp.mean(lambd.R),
-            'grad_norm': grad_norm[0],
+            'grad_norm': grad_norm[0]
         }, global_step)
   return (new_optimizer_state, opt_update_fn), new_params, new_model_state
 

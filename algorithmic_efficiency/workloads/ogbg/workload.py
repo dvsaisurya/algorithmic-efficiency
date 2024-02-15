@@ -142,7 +142,8 @@ class BaseOgbgWorkload(spec.Workload):
   @property
   def step_hint(self) -> int:
     """Max num steps the baseline algo was given to reach the target."""
-    return 80_000
+    # return 80_000
+    return 50_000
 
   @abc.abstractmethod
   def _normalize_eval_metrics(
