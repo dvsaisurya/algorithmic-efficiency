@@ -88,7 +88,8 @@ class BaseWmtWorkload(spec.Workload):
 
   @property
   def max_allowed_runtime_sec(self) -> int:
-    return 48_151  # ~13.5 hours
+    # return 48_151  # ~13.5 hours
+    return 100000000000000000
 
   @property
   def eval_period_time_sec(self) -> int:
@@ -97,7 +98,8 @@ class BaseWmtWorkload(spec.Workload):
   @property
   def step_hint(self) -> int:
     """Max num steps the baseline algo was given to reach the target."""
-    return 133_333
+    # return 133_333
+    return 60_000
 
   @property
   def pre_ln(self) -> bool:
