@@ -113,12 +113,14 @@ def update_moment_per_elem_norm(updates, moments, decay, order):
 
 
 def get_merged_shape(param_shape):
+
+
    assert len(param_shape)<=4
    if len(param_shape)==4:
        new_shape = (param_shape[0]*param_shape[1]*param_shape[2], param_shape[3])
        return new_shape
    elif len(param_shape)==3:
-       new_shape = (param_shape[0], param_shape[1]*param_shape[2])
+       new_shape = (param_shape[0], param_shape[1]*param_shape[2]) if param_shape[1]<param_shape[0] else (param_shape[0]*param_shape[1],param_shape[2])
        return new_shape
    else:
        return param_shape
