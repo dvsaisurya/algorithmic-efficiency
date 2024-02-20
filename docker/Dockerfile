@@ -5,7 +5,9 @@
 # docker build -t <image_name> --build-arg framework=pytorch
 
 # To build Docker image
-FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu20.04
+# FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu20.04
+# FROM python:3.8
+FROM ubuntu:20.04
 
 # Installing machine packages
 RUN echo "Setting up machine"
@@ -57,7 +59,8 @@ RUN if [ "$framework" = "jax" ] ; then \
         echo "Invalid build-arg $framework: framework should be either jax, pytorch or both." >&2 \
         && exit 1 ; \
     fi
-
+RUN pip uninstall jax jaxlib --yes
+RUN pip install jax[tpu]==0.4.10 -f https://storage.googleapis.com/jax-releases/libtpu_releases.html 
 RUN cd /algorithmic-efficiency && pip install -e '.[wandb]'
 
 RUN cd /algorithmic-efficiency && git fetch origin 
