@@ -194,13 +194,21 @@ def update_lambdas(precond,lambd,prev_stat,grad,block_size,b2,count,exponent):
   print('changed code')
   #computing tr(Pr_tR_{t-1})/n
   tr = lambda x,y: jnp.sum(jnp.sum(x*y,axis=-1),axis=-1)
-  Pr_t = precond.R@precond.R if exponent==2 else precond.R
+  # Pr_t = precond.R@precond.R if exponent==2 else precond.R
 
-  # Pr_t = precond.R
-  lambdL_coeff = tr(Pr_t,prev_stat.R)[:,:,jnp.newaxis]/block_size
+  Pr_t = precond.R
+  if exponent==2:
+    lambdL_coeff = tr(Pr_t,prev_stat.R@Pr_t)[:,:,jnp.newaxis]/block_size
+  else:
+    lambdL_coeff = tr(Pr_t,prev_stat.R)[:,:,jnp.newaxis]/block_size
 
   #computing diag(G_tPr_tG_t^T)/n
-  lambdL_res = jnp.einsum("ijkl,ijlm,ijmk->ijk",grad,Pr_t,grad.transpose(0,1,3,2))/block_size
+  if exponent!=2:
+    right_grad = jnp.einsum("ijkl,ijlm->ijkm",grad,Pr_t)
+    lambdL_res = (grad*right_grad).sum(axis=-1)/block_size
+  else:
+    right_grad = jnp.einsum("ijkl,ijlm->ijkm",grad,Pr_t)
+    lambdL_res = (right_grad*right_grad).sum(axis=-1)/block_size
 
 
 #   lambdL = jax.lax.cond(count%4000==0,lambda : jnp.ones_like(lambd.L), lambda : jnp.minimum(0.9*lambd.L*lambdL_coeff +(1-0.9)* lambdL_res,1e30))
@@ -211,19 +219,27 @@ def update_lambdas(precond,lambd,prev_stat,grad,block_size,b2,count,exponent):
   lambdL = alpha*jnp.clip(b3*lambd.L*lambdL_coeff +(1-b3)* lambdL_res,1e-24,1e24) + (1-alpha)*jnp.ones_like(lambd.L)
   # jax.debug.print('lambdL {x}', x = jnp.sum(lambdL,axis=-1)[:3,:3])
   #computing tr(PltL_{t-1})/m
-  Pl_t = precond.L@precond.L if exponent==2 else precond.L
+  # Pl_t = precond.L@precond.L if exponent==2 else precond.L
 
-  # Pl_t = precond.L
-  lambdR_coeff = tr(Pl_t, prev_stat.L)[:,:,jnp.newaxis]/block_size
+  Pl_t = precond.L
+  if exponent==2:
+    lambdR_coeff = tr(Pl_t, prev_stat.L@Pl_t)[:,:,jnp.newaxis]/block_size
+  else:
+    lambdR_coeff = tr(Pl_t, prev_stat.L)[:,:,jnp.newaxis]/block_size
 
   #computing diag(G_t^TPl_tG_t)/m
-  lambdR_res = jnp.einsum("ijkl,ijlm,ijmk->ijk",grad.transpose(0,1,3,2),Pl_t,grad)/block_size
+  if exponent!=2:
+    # lambdR_res = jnp.einsum("ijkl,ijlm,ijmk->ijk",grad.transpose(0,1,3,2),Pl_t,grad)/block_size
+    left_grad = jnp.einsum("ijkl,ijlm->ijkm",Pl_t,grad)
+    lambdR_res = (grad*left_grad).sum(axis=-2)/block_size
+  else:
+    left_grad = jnp.einsum("ijkl,ijlm->ijkm",Pl_t,grad)
+    lambdR_res = (left_grad*left_grad).sum(axis=-2)/block_size
   lambdR =  alpha*jnp.clip(b3*lambd.R*lambdR_coeff + (1-b3)*lambdR_res,1e-24,1e24) + (1-alpha)*jnp.ones_like(lambd.R)
   # jax.debug.print('lambdR {x}', x = jnp.mean(lambdR))
 #   lambdR = jax.lax.cond(count%4000==0, lambda: jnp.ones_like(lambd.R), lambda : jnp.minimum(0.9*lambd.R*lambdR_coeff + (1-0.9)*lambdR_res,1e30))
   print('after lambda',lambdR.shape,lambdL.shape)
   return LambdaRLPair(R=lambdR, L=lambdL)
-
 
 def eigh_inverse(stat,exponent=4,epsilon=1e-6,relative_epsilon=True):
  # _,max_ev = power_iteration(stat)
@@ -449,14 +465,21 @@ def caspr_update_fn(precond,momentum,adam_update,lambd,block_size,caspr_p=2,glob
  elif caspr_p==1:
    proc_lambdR = 1e-2*jnp.max(lambd.R,axis=-1)[:,:,jnp.newaxis]+lambd.R
    proc_lambdR = (proc_lambdR/(1e-30+jnp.sum(proc_lambdR,axis=-1)[:,:,jnp.newaxis]))[:,:,jnp.newaxis,:]
-   m1 = jnp.einsum('ijkl,ijln->ijkn',precond.L,
+   trfunc = lambda x: (jnp.einsum('ijkk->ij',x)/x.shape[-1])**(1/2)
+   if exponent==1:
+    pL = (precond.L)/trfunc(precond.L)
+    pR = (precond.R)/trfunc(precond.R)
+   else:
+    pL = precond.L
+    pR = precond.R
+   m1 = jnp.einsum('ijkl,ijln->ijkn',pL,
     (momentum_reshaped*
-     (1/(1e-30+proc_lambdR))**(1/exponent)))
+     (1/(1e-30+proc_lambdR))**(1/2)))
   #  m1 = m1/(jnp.linalg.norm(m1.reshape(m1.shape[0],m1.shape[1],-1),axis=2)[:,:,jnp.newaxis,jnp.newaxis]+1e-30)
    proc_lambdL = 1e-2*jnp.max(lambd.L,axis=-1)[:,:,jnp.newaxis]+lambd.L
    proc_lambdL = (proc_lambdL/(1e-30+jnp.sum(proc_lambdL,axis=-1)[:,:,jnp.newaxis]))[:,:,:,jnp.newaxis]
-   m2 = jnp.einsum('ijkl,ijnl->ijnk',precond.R,
-    (1/(1e-30+proc_lambdL))**(1/exponent)*momentum_reshaped)
+   m2 = jnp.einsum('ijkl,ijnl->ijnk',pR,
+    (1/(1e-30+proc_lambdL))**(1/2)*momentum_reshaped)
   #  if orig_shape[1]==1000 and orig_shape[0]==784:
   #   jax.debug.print("grad {x}",x = momentum_reshaped[10,10])
   #   jax.debug.print("lambdL {x}",x=lambd.L[10,10])
