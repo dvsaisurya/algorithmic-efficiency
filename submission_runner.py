@@ -284,22 +284,22 @@ def train_once(
   logging.info('Initializing checkpoint and logger.')
   if log_dir is not None:
     # If the checkpoint exists, load from the checkpoint.
-    (optimizer_state,
-     model_params,
-     model_state,
-     train_state,
-     eval_results,
-     global_step,
-     preemption_count) = checkpoint_utils.maybe_restore_checkpoint(
-         FLAGS.framework,
-         optimizer_state,
-         model_params,
-         model_state,
-         train_state,
-         eval_results,
-         global_step,
-         preemption_count,
-         checkpoint_dir=log_dir)
+    # (optimizer_state,
+    #  model_params,
+    #  model_state,
+    #  train_state,
+    #  eval_results,
+    #  global_step,
+    #  preemption_count) = checkpoint_utils.maybe_restore_checkpoint(
+    #      FLAGS.framework,
+    #      optimizer_state,
+    #      model_params,
+    #      model_state,
+    #      train_state,
+    #      eval_results,
+    #      global_step,
+    #      preemption_count,
+    #      checkpoint_dir=log_dir)
     meta_file_name = os.path.join(log_dir, f'meta_data_{preemption_count}.json')
     logging.info(f'Saving meta data to {meta_file_name}.')
     meta_data = logger_utils.get_meta_data(workload, rng_seed)
@@ -429,19 +429,19 @@ def train_once(
                 preemption_count=preemption_count,
                 is_eval=True,
             )
-            if save_checkpoints:
-              checkpoint_utils.save_checkpoint(
-                  framework=FLAGS.framework,
-                  optimizer_state=optimizer_state,
-                  model_params=model_params,
-                  model_state=model_state,
-                  train_state=train_state,
-                  eval_results=eval_results,
-                  global_step=global_step,
-                  preemption_count=preemption_count,
-                  checkpoint_dir=log_dir,
-                  save_intermediate_checkpoints=FLAGS
-                  .save_intermediate_checkpoints)
+            # if save_checkpoints:
+            #   checkpoint_utils.save_checkpoint(
+            #       framework=FLAGS.framework,
+            #       optimizer_state=optimizer_state,
+            #       model_params=model_params,
+            #       model_state=model_state,
+            #       train_state=train_state,
+            #       eval_results=eval_results,
+            #       global_step=global_step,
+            #       preemption_count=preemption_count,
+            #       checkpoint_dir=log_dir,
+            #       save_intermediate_checkpoints=FLAGS
+            #       .save_intermediate_checkpoints)
 
           logging_end_time = get_time()
           train_state['accumulated_logging_time'] += (
@@ -466,17 +466,17 @@ def train_once(
         global_step=global_step,
         preemption_count=preemption_count)
     metrics_logger.finish()
-    checkpoint_utils.save_checkpoint(
-        framework=FLAGS.framework,
-        optimizer_state=optimizer_state,
-        model_params=model_params,
-        model_state=model_state,
-        train_state=train_state,
-        eval_results=eval_results,
-        global_step=global_step,
-        preemption_count=preemption_count,
-        checkpoint_dir=log_dir,
-        save_intermediate_checkpoints=FLAGS.save_intermediate_checkpoints)
+    # checkpoint_utils.save_checkpoint(
+    #     framework=FLAGS.framework,
+    #     optimizer_state=optimizer_state,
+    #     model_params=model_params,
+    #     model_state=model_state,
+    #     train_state=train_state,
+    #     eval_results=eval_results,
+    #     global_step=global_step,
+    #     preemption_count=preemption_count,
+    #     checkpoint_dir=log_dir,
+    #     save_intermediate_checkpoints=FLAGS.save_intermediate_checkpoints)
 
   return train_state['accumulated_submission_time'], metrics
 
@@ -601,7 +601,7 @@ def score_submission_on_workload(workload: spec.Workload,
       logging.info(f'Total number of evals: {num_evals}')
       logging.info('=' * 20)
       #use different rng seed for different trial
-      rng_seed = int(rng_seed)+1
+      # rng_seed = int(rng_seed)+1
     score = min(all_timings)
   else:
     if tuning_search_space is not None:
