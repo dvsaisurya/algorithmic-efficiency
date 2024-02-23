@@ -1,0 +1,1 @@
+gsutil -m cp -r gs://casprexp/imagenet /mnt/disks/imagenetdata
