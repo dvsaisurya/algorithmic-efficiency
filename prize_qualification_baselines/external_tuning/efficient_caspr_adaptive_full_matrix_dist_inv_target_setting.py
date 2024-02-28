@@ -23,7 +23,7 @@ import jax.numpy as jnp
 import optax
 
 from algorithmic_efficiency import spec
-from algorithmic_efficiency.efficient_caspr_adaptive_dist_inv import efficient_caspr_adaptive_dist_inv
+from algorithmic_efficiency.efficient_caspr_adaptive_full_matrix_dist_inv import efficient_caspr_adaptive_full_matrix_dist_inv
 
 _GRAD_CLIP_EPS = 1e-6
 
@@ -183,7 +183,7 @@ def init_optimizer_state(workload: spec.Workload,
 
   # Create optimizer + LR schedule.
   lr_schedule_fn = jax_cosine_warmup(workload.step_hint * 0.375, hyperparameters)
-  opt_init_fn, opt_update_fn = efficient_caspr_adaptive_dist_inv(
+  opt_init_fn, opt_update_fn = efficient_caspr_adaptive_full_matrix_dist_inv(
        lr_schedule_fn,
        b1=1.0 - hyperparameters.one_minus_beta1,
        b2=hyperparameters.beta2,
@@ -305,23 +305,22 @@ def update_params(workload: spec.Workload,
   new_optimizer_state, new_params, new_model_state, loss, grad_norm = outputs
   #compute optimizer metrics:
   # print(new_optimizer_state)
-  flattened_lambdas,_=jax.tree_flatten(new_optimizer_state[0].lambdas,is_leaf=lambda x: type(x).__name__=='LambdaRLPair')
+  flattened_lambdas,_=jax.tree_flatten(new_optimizer_state[0].lambdas)
   # print('flattened lambdas',[ lambd.L.shape for lambd in flattened_lambdas])
-  flattened_lambdas = [ lambd for lambd in flattened_lambdas if len(lambd.L.shape)!=1]
-  lambd = flattened_lambdas[0]
-  # flattened_lambdas,_=jax.tree_flatten(new_optimizer_state[0].preconds,is_leaf=lambda x: type(x).__name__=='ShampooLRPair')
-  
+  lambdR,lambdL = flattened_lambdas[0],flattened_lambdas[1]
+  flattened_preconds,_ = jax.tree_flatten(new_optimizer_state[0].preconds)
+  precondL,precondR = flattened_preconds[0],flattened_preconds[1]
+  # print("lambdL shape",lambdL.shape)
   # Log loss, grad_norm.
   if global_step % 100 == 0 and workload.metrics_logger is not None:
+    trfunc = lambda x: jnp.einsum("lijkk->lij",x)
     workload.metrics_logger.append_scalar_metrics(
         {
             'loss': loss[0],
-            'lambdaL_max': jnp.mean(jnp.max(lambd.L,axis=-1)),
-            'lambdaL_condnum': jnp.mean((jnp.max(lambd.L,axis=-1)/(1e-37+jnp.min(lambd.L,axis=-1)))),
-            'lambdaL_mean': jnp.mean(lambd.L),
-            'lambdaR_max': jnp.mean(jnp.max(lambd.R,axis=-1)),
-            'lambdaR_condnum': jnp.mean((jnp.max(lambd.R,axis=-1)/(1e-37+jnp.min(lambd.R,axis=-1)))),
-            'lambdaR_mean': jnp.mean(lambd.R),
+            'lambdaL_trace': jnp.mean(trfunc(lambdL)),
+            'lambdaR_trace': jnp.mean(trfunc(lambdR)),
+            'precondL_trace': jnp.mean(trfunc(precondL)),
+            'precondR_trace': jnp.mean(trfunc(precondR)),
             'grad_norm': grad_norm[0]
         }, global_step)
   return (new_optimizer_state, opt_update_fn), new_params, new_model_state

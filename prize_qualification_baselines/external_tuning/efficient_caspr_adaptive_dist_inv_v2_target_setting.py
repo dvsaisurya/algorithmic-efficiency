@@ -23,7 +23,7 @@ import jax.numpy as jnp
 import optax
 
 from algorithmic_efficiency import spec
-from algorithmic_efficiency.efficient_caspr_adaptive_dist_inv import efficient_caspr_adaptive_dist_inv
+from algorithmic_efficiency.efficient_caspr_adaptive_dist_inv_v2 import efficient_caspr_adaptive_dist_inv_v2
 
 _GRAD_CLIP_EPS = 1e-6
 
@@ -183,11 +183,13 @@ def init_optimizer_state(workload: spec.Workload,
 
   # Create optimizer + LR schedule.
   lr_schedule_fn = jax_cosine_warmup(workload.step_hint * 0.375, hyperparameters)
-  opt_init_fn, opt_update_fn = efficient_caspr_adaptive_dist_inv(
+  opt_init_fn, opt_update_fn = efficient_caspr_adaptive_dist_inv_v2(
        lr_schedule_fn,
        b1=1.0 - hyperparameters.one_minus_beta1,
        b2=hyperparameters.beta2,
+       b3=hyperparameters.beta3,
        eps=1e-8,
+       lamb_eps=hyperparameters.lamb_eps,
        matrix_epsilon=1e-6,
        eps_root=0.0,
        block_size=1024,

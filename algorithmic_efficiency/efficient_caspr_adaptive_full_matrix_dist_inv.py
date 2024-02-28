@@ -46,6 +46,7 @@ class ScaleByCasprState(NamedTuple):
  stats: optax.Updates
  preconds: optax.Updates
  lambdas: optax.Updates
+ preconds_lambdas: optax.Updates
 
 
 class ShampooLRPair(NamedTuple):
@@ -127,9 +128,6 @@ def update_moment_per_elem_norm(updates, moments, decay, order):
  return jax.tree_util.tree_map(
      lambda g, t: (1 - decay) * orderth_norm(g) + decay * t, updates, moments)
 
-
-
-
 def get_merged_shape(param_shape):
 
 
@@ -138,7 +136,7 @@ def get_merged_shape(param_shape):
        new_shape = (param_shape[0]*param_shape[1]*param_shape[2], param_shape[3])
        return new_shape
    elif len(param_shape)==3:
-       new_shape = (param_shape[0], param_shape[1]*param_shape[2])
+       new_shape = (param_shape[0], param_shape[1]*param_shape[2]) if param_shape[1]<param_shape[0] else (param_shape[0]*param_shape[1],param_shape[2])
        return new_shape
    else:
        return param_shape
@@ -151,11 +149,15 @@ def get_blocked_shape(merged_shape,block_size):
 
 
 def update_stats(L,R,grad,block_size,b2):
+
+
  #TODO: update statistics once every few steps
- if len(L.shape)==1:
-   return ShampooLRPair(L=L,R=R)
+#  L, R = s.L, s.R
  #pad the gradient to be a multiple of block_size
  mgd_shape = get_merged_shape(grad.shape)
+ if len(mgd_shape)<=1 or sum([ dim>20000 for dim in grad.shape]):
+    return ShampooLRPair(L,R)
+ print(mgd_shape)
  grad = grad.reshape(mgd_shape)
  grad = jnp.pad(grad,((0,(-mgd_shape[0])%block_size),(0,(-mgd_shape[1])%block_size)),mode='constant')
  blkd_shape = get_blocked_shape(mgd_shape,block_size)
@@ -175,7 +177,8 @@ def update_stats(L,R,grad,block_size,b2):
 
 
 def update_lambdas(precond,lambd,prev_stat,grad,block_size,b2,count,exponent):
-  if len(precond.L.shape)==1:
+#   print('prev lambda', lambd.L.shape)
+  if len(grad.shape)<=1 or sum([ dim>20000 for dim in grad.shape]):
       return lambd
   mgd_shape = get_merged_shape(grad.shape)
   grad = grad.reshape(mgd_shape)
@@ -189,36 +192,61 @@ def update_lambdas(precond,lambd,prev_stat,grad,block_size,b2,count,exponent):
   print('changed code')
   #computing tr(Pr_tR_{t-1})/n
   tr = lambda x,y: jnp.sum(jnp.sum(x*y,axis=-1),axis=-1)
-  Pr_t = precond.R@precond.R if exponent==2 else precond.R
+  # Pr_t = precond.R@precond.R if exponent==2 else precond.R
 
-  # Pr_t = precond.R
-  lambdL_coeff = tr(Pr_t,prev_stat.R)[:,:,jnp.newaxis]/block_size
+  Pr_t = precond.R
+  M = np.zeros((g1,g2))
+  N = np.zeros((g1,g2))
+  M[-1,:] = mgd_shape[0]%block_size if mgd_shape[0]%block_size!=0 else block_size
+  M[:-1,:] = block_size
+  N[:,-1] = mgd_shape[1]%block_size if mgd_shape[1]%block_size!=0 else block_size
+  N[:,:-1] = block_size
+
+  
+  if exponent==2:
+    lambdL_coeff = jnp.clip(tr(Pr_t,prev_stat.R@Pr_t)[:,:,jnp.newaxis,jnp.newaxis]/N[:,:,np.newaxis,np.newaxis],0,None)
+  else:
+    lambdL_coeff = jnp.clip(tr(Pr_t,prev_stat.R)[:,:,jnp.newaxis,jnp.newaxis]/N[:,:,np.newaxis,np.newaxis],0,None)
 
   #computing diag(G_tPr_tG_t^T)/n
-  lambdL_res = jnp.einsum("ijkl,ijlm,ijmk->ijk",grad,Pr_t,grad.transpose(0,1,3,2))/block_size
+  if exponent!=2:
+    lambdL_res = jnp.einsum("ijkl,ijlm,ijnm->ijkn",grad,Pr_t,grad)/N[:,:,np.newaxis,np.newaxis]
+  else:
+    right_grad = jnp.einsum("ijkl,ijlm->ijkm",grad,Pr_t)
+    lambdL_res = jnp.einsum("ijkm,ijnm->ijkn",right_grad,right_grad)/N[:,:,np.newaxis,np.newaxis]
 
 
 #   lambdL = jax.lax.cond(count%4000==0,lambda : jnp.ones_like(lambd.L), lambda : jnp.minimum(0.9*lambd.L*lambdL_coeff +(1-0.9)* lambdL_res,1e30))
   # alpha = jnp.maximum((1-count/10000.0),0.0)
   alpha = 1.0
-  get_b3 = lambda x:  0.8
+  get_b3 = lambda x:   0.8
+  
   b3 = get_b3(count)
-  lambdL = alpha*jnp.clip(b3*lambd.L*lambdL_coeff +(1-b3)* lambdL_res,1e-24,1e24) + (1-alpha)*jnp.ones_like(lambd.L)
+  lambdL = b3*lambd.L*lambdL_coeff +(1-b3)* lambdL_res
   # jax.debug.print('lambdL {x}', x = jnp.sum(lambdL,axis=-1)[:3,:3])
   #computing tr(PltL_{t-1})/m
-  Pl_t = precond.L@precond.L if exponent==2 else precond.L
+  # Pl_t = precond.L@precond.L if exponent==2 else precond.L
 
-  # Pl_t = precond.L
-  lambdR_coeff = tr(Pl_t, prev_stat.L)[:,:,jnp.newaxis]/block_size
+  Pl_t = precond.L
+  if exponent==2:
+    lambdR_coeff = jnp.clip(tr(Pl_t, prev_stat.L@Pl_t)[:,:,jnp.newaxis,jnp.newaxis]/M[:,:,np.newaxis,np.newaxis],0,None)
+  else:
+    lambdR_coeff = jnp.clip(tr(Pl_t, prev_stat.L)[:,:,jnp.newaxis,jnp.newaxis]/M[:,:,np.newaxis,np.newaxis],0,None)
 
   #computing diag(G_t^TPl_tG_t)/m
-  lambdR_res = jnp.einsum("ijkl,ijlm,ijmk->ijk",grad.transpose(0,1,3,2),Pl_t,grad)/block_size
-  lambdR =  alpha*jnp.clip(b3*lambd.R*lambdR_coeff + (1-b3)*lambdR_res,1e-24,1e24) + (1-alpha)*jnp.ones_like(lambd.R)
+  if exponent==2:
+
+    left_grad = jnp.einsum("ijlk,ijlm->ijkm",grad,Pl_t)
+    lambdR_res = jnp.einsum("ijkm,ijnm->ijkn",left_grad,left_grad)/M[:,:,np.newaxis,np.newaxis]
+  else:
+    lambdR_res = jnp.einsum("ijlk,ijlm,ijmn->ijkn",grad,Pl_t,grad)/M[:,:,np.newaxis,np.newaxis]
+
+  lambdR =  b3*lambd.R*lambdR_coeff + (1-b3)*lambdR_res
   # jax.debug.print('lambdR {x}', x = jnp.mean(lambdR))
 #   lambdR = jax.lax.cond(count%4000==0, lambda: jnp.ones_like(lambd.R), lambda : jnp.minimum(0.9*lambd.R*lambdR_coeff + (1-0.9)*lambdR_res,1e30))
-  
+  print('after lambda',lambdR.shape,lambdL.shape)
+  # jax.debug.print("{lambdL} ",lambdL=lambdR_coeff)
   return LambdaRLPair(R=lambdR, L=lambdL)
-
 
 def eigh_inverse(stat,exponent=4,epsilon=1e-6,relative_epsilon=True):
  # _,max_ev = power_iteration(stat)
@@ -277,36 +305,32 @@ def unbatch_errors(x):
 
 
 
-def update_preconds(L,R,precond_L,precond_R,momentum,exponent,precondition,epsilon,
+def get_inverses(stats,preconds,exponent,precondition,epsilon,
                    block_size,relative_epsilon,inverse_type,error_tolerance,batch_axis_name=None):
- #TODO: account for padding after computing preconditioners.
- #for biases we don't do preconditioning
- if len(L.shape)==1:
-   return ShampooLRPair(L=L,R=R)
- mgd_shape = get_merged_shape(momentum.shape)
- #pad the gradient to be a multiple of block size
- def precondition_false_fn(L,R,precond_L,precond_R,momentum):
-   return ShampooLRPair(L=precond_L,R=precond_R)
+
+ def precondition_false_fn(stats,preconds):
+   return preconds
 
 
- def precondition_true_fn(L,R,precond_L,precond_R,momentum):
+ def precondition_true_fn(stats,preconds):
    if inverse_type=='eigh':
      inverse_fn = eigh_inverse
    elif inverse_type=='cholesky':
      inverse_fn = cholesky_inverse
    elif inverse_type=='rsvd':
      raise NotImplemented
-   stats = jnp.stack([L,R],axis=0)
-   assert len(stats.shape)==5
-   assert stats.shape[0]==2
-   old_preconds = jnp.stack([precond_L,precond_R],axis=0)
-   g1,g2 = stats.shape[1],stats.shape[2]
-   stats_flat = stats.reshape(2*g1*g2,stats.shape[-2],stats.shape[-1])
+  #  stats = jnp.stack([L,R],axis=0)
+   assert len(stats.shape)==3
+   assert len(preconds.shape)==3
+
+   old_preconds = preconds
+   g = stats.shape[0]
+   stats_flat = stats
    if batch_axis_name:
      num_devices = lax.psum(1, batch_axis_name)
    else:
      num_devices = 1
-   num_statistics = 2*g1*g2
+   num_statistics = g
 
 
    #distribute inverse operations to multiple devices
@@ -334,37 +358,103 @@ def update_preconds(L,R,precond_L,precond_R,momentum,exponent,precondition,epsil
        errors_flat = unbatch_errors(errors_flat_batched)
    else:
      preconds_flat, errors_flat = jax.vmap(functools.partial(inverse_fn,exponent=exponent,epsilon=epsilon,relative_epsilon=relative_epsilon))(stats_flat)
-
-
-
-
-   preconds = preconds_flat.reshape(2,g1,g2,stats.shape[-2],stats.shape[-1])
-   errors = errors_flat.reshape(2,g1,g2)[:,:,:,jnp.newaxis,jnp.newaxis]
+   preconds = preconds_flat.reshape(g,stats.shape[-2],stats.shape[-1])
+   errors = errors_flat[:,jnp.newaxis,jnp.newaxis]
    errors = jnp.where(jnp.isnan(errors),jnp.ones_like(errors)*(error_tolerance+1.0),errors)
    # jax.debug.print('errors: {x}', x=errors)
    preconds = jnp.where(errors>error_tolerance,old_preconds,preconds)
    # print('preconds',preconds.shape)
-   #account for paddings
-   if mgd_shape[0]%block_size!=0:
-     preconds = preconds.at[0,-1,:,mgd_shape[0]%block_size:,:].set(0)
-     preconds = preconds.at[0,-1,:,:,mgd_shape[0]%block_size:].set(0)
-   if mgd_shape[1]%block_size!=0:
-     preconds = preconds.at[1,:,-1,mgd_shape[1]%block_size:,:].set(0)
-     preconds = preconds.at[1,:,-1,:,mgd_shape[1]%block_size:].set(0)
+   return preconds
+ return jax.lax.cond(precondition,precondition_true_fn,precondition_false_fn,stats,preconds)
 
 
 
+def split_array(arr, sizes):
+    # Ensure the sum of sizes equals the first dimension of the array
+    assert arr.shape[0] == sum(sizes), "The sum of sizes must equal the first dimension of the array"
 
-   precond_L, precond_R= preconds[0],preconds[1]
-   return ShampooLRPair(L=precond_L,R=precond_R)
- return jax.lax.cond(precondition,precondition_true_fn,precondition_false_fn,L,R,precond_L,precond_R,momentum)
+    # Compute the cumulative sum of sizes to get split indices
+    # We use [:-1] to exclude the last element, as split indices should not include the total length
+    split_indices = np.cumsum(np.array(sizes))[:-1]
+
+    # Split the array at the computed indices
+    split_arrays = jnp.split(arr, split_indices)
+
+    return split_arrays
+
+def update_preconds_model(stats,preconds,mu,
+                    exponent,
+                    precondition,
+                    matrix_epsilon,
+                    block_size,
+                    relative_epsilon,
+                    inverse_type,
+                    error_tolerance,
+                    batch_axis_name):
+  stats_flat,tree_def = jax.tree_util.tree_flatten(stats)
+  preconds_flat,tree_def = jax.tree_util.tree_flatten(preconds)
+#   assert not optax.MaskedNode() in stats_flat
+  orig_shapes = []
+  new_preconds_flat = []
+  new_stats_flat = []
+  for precond_flat,stat_flat in zip(preconds_flat,stats_flat):
+    orig_shapes.append(precond_flat.shape)
+    new_preconds_flat.append(precond_flat.reshape(-1,block_size,block_size))
+    new_stats_flat.append(stat_flat.reshape(-1,block_size,block_size))
+  preconds_flat = new_preconds_flat
+  stats_flat = new_stats_flat
+  print([precond.shape for precond in preconds_flat])
+  preconds_flat = jnp.concatenate(preconds_flat,axis=0)
+  stats_flat = jnp.concatenate(stats_flat,axis=0)
+  preconds_flat = get_inverses(stats_flat,preconds_flat,exponent,precondition,matrix_epsilon,
+                   block_size,relative_epsilon,inverse_type,error_tolerance,batch_axis_name)
+  #unwrapping preconds_flat
+  split_sizes = ([ orig_shape[0]*orig_shape[1] for orig_shape in orig_shapes ])
+  print("split_sizes",split_sizes)
+  print(preconds_flat.shape,np.sum(split_sizes))
+  preconds_flat = split_array(preconds_flat,split_sizes)
+  # new_preconds = []
+  # g = len(preconds_flat)
+  # for idx in range(0,g,2):
+  #   precondL,precondR = preconds_flat[idx:idx+2]
+  #   orig_shapeL,orig_shapeR = orig_shapes[idx:idx+2]
+  #   new_preconds.append(ShampooLRPair(L=precondL.reshape(*orig_shapeL),R=precondR.reshape(*orig_shapeR)))
+  preconds_flat = [ precond.reshape(orig_shape) for precond,orig_shape in zip(preconds_flat,orig_shapes)]
+  new_preconds = jax.tree_util.tree_unflatten(tree_def,preconds_flat)
+  new_preconds = jax.lax.cond(precondition,lambda :
+               jax.tree_util.tree_map(zeroing_preconds,
+                                      new_preconds,mu,
+                                      is_leaf=lambda x: type(x).__name__ in ['LambdaRLPair','ShampooLRPair']),
+                lambda : new_preconds)
+  print(new_preconds)
+  return new_preconds
+
+def zeroing_preconds(precond,momentum):
+
+  precond_L = precond.L
+  precond_R = precond.R
+  mgd_shape = get_merged_shape(momentum.shape)
+  if len(mgd_shape)<=1 or sum([ dim>20000 for dim in momentum.shape]):
+    return precond
+#   if precond_L is optax.MaskedNode():
+#    return ShampooLRPair(L=precond_L,R=precond_R)
+  block_size = precond_L.shape[-1]
+  # print('preconds',preconds.shape)
+  #account for paddings
+  if mgd_shape[0]%block_size!=0:
+    precond_L = precond_L.at[-1,:,mgd_shape[0]%block_size:,:].set(0)
+    precond_L = precond_L.at[-1,:,:,mgd_shape[0]%block_size:].set(0)
+  if mgd_shape[1]%block_size!=0:
+    precond_R = precond_R.at[:,-1,mgd_shape[1]%block_size:,:].set(0)
+    precond_R = precond_R.at[:,-1,:,mgd_shape[1]%block_size:].set(0)
+
+  return ShampooLRPair(L=precond_L,R=precond_R) if type(precond).__name__=='ShampooLRPair' else LambdaRLPair(R=precond_R,L=precond_L)
 
 
-
-def caspr_update_fn(precond,momentum,adam_update,lambd,block_size,caspr_p=2,global_grafting=False,exponent=1):
+def caspr_update_fn(precond,momentum,adam_update,precond_lambd,block_size,caspr_p=2,global_grafting=False,exponent=1):
  #TODO: check whether the final momentum_reshaped retain the zeros.
- if len(adam_update.shape)==1:
-   return adam_update
+ if len(adam_update.shape)==1 or sum([ dim>20000 for dim in adam_update.shape]):
+  return adam_update
  orig_shape=momentum.shape
  mgd_shape = get_merged_shape(orig_shape)
  momentum_reshaped = momentum.reshape(mgd_shape)
@@ -380,16 +470,34 @@ def caspr_update_fn(precond,momentum,adam_update,lambd,block_size,caspr_p=2,glob
    momentum_reshaped = jnp.einsum('ijkl,ijln->ijkn',precond.L,momentum_reshaped)+jnp.einsum('ijkl,ijnl->ijnk',precond.R,momentum_reshaped)
    momentum_reshaped = jnp.einsum('ijkl,ijln->ijkn',precond.L,momentum_reshaped)+jnp.einsum('ijkl,ijnl->ijnk',precond.R,momentum_reshaped)
  elif caspr_p==1:
-   proc_lambdR = 1e-2*jnp.max(lambd.R,axis=-1)[:,:,jnp.newaxis]+lambd.R
-   proc_lambdR = (proc_lambdR/(1e-30+jnp.sum(proc_lambdR,axis=-1)[:,:,jnp.newaxis]))[:,:,jnp.newaxis,:]
-   m1 = jnp.einsum('ijkl,ijln->ijkn',precond.L,
-    (momentum_reshaped*
-     (1/(1e-30+proc_lambdR))**(1/exponent)))
+
+
+
+   M = np.zeros((g1,g2))
+   N = np.zeros((g1,g2))
+   M[-1,:] = mgd_shape[0]%block_size if mgd_shape[0]%block_size!=0 else block_size
+   M[:-1,:] = block_size
+   N[:,-1] = mgd_shape[1]%block_size if mgd_shape[1]%block_size!=0 else block_size
+   N[:,:-1] = block_size
+   trfuncR = lambda x: (jnp.einsum('ijkk->ij',x)/N)[:,:,jnp.newaxis,jnp.newaxis]**(1/2)
+   trfuncL = lambda x: (jnp.einsum('ijkk->ij',x)/M)[:,:,jnp.newaxis,jnp.newaxis]**(1/2)
+   pL = precond.L
+   pR = precond.R
+#    m1 = jnp.einsum('ijkl,ijln,ijnm->ijkm',pL,
+#                                     momentum_reshaped,precond_lambd.R/(1e-30+trfuncR(precond_lambd.R)))
+   m1 = jnp.einsum('ijkl,ijln,ijnm->ijkm',pL/(1e-30+trfuncL(pL)),
+                                    momentum_reshaped,precond_lambd.R/(1e-30+trfuncR(precond_lambd.R)))
+#    m1 = jnp.einsum('ijkl,ijln,ijnm->ijkm',pL,
+#                                     momentum_reshaped,precond_lambd.R)
   #  m1 = m1/(jnp.linalg.norm(m1.reshape(m1.shape[0],m1.shape[1],-1),axis=2)[:,:,jnp.newaxis,jnp.newaxis]+1e-30)
-   proc_lambdL = 1e-2*jnp.max(lambd.L,axis=-1)[:,:,jnp.newaxis]+lambd.L
-   proc_lambdL = (proc_lambdL/(1e-30+jnp.sum(proc_lambdL,axis=-1)[:,:,jnp.newaxis]))[:,:,:,jnp.newaxis]
-   m2 = jnp.einsum('ijkl,ijnl->ijnk',precond.R,
-    (1/(1e-30+proc_lambdL))**(1/exponent)*momentum_reshaped)
+
+#    m2 = jnp.einsum('ijnl,ijlk,ijkm->ijnm',
+#                                 precond_lambd.L/(1e-30+trfuncL(precond_lambd.L)),momentum_reshaped,pR)
+   m2 = jnp.einsum('ijnl,ijlk,ijkm->ijnm',
+                                precond_lambd.L/(1e-30+trfuncL(precond_lambd.L)),momentum_reshaped,pR/(1e-30+trfuncR(pR)))
+#    m2 = jnp.einsum('ijnl,ijlk,ijkm->ijnm',
+#                                 precond_lambd.L,momentum_reshaped,pR)
+
   #  if orig_shape[1]==1000 and orig_shape[0]==784:
   #   jax.debug.print("grad {x}",x = momentum_reshaped[10,10])
   #   jax.debug.print("lambdL {x}",x=lambd.L[10,10])
@@ -407,7 +515,7 @@ def caspr_update_fn(precond,momentum,adam_update,lambd,block_size,caspr_p=2,glob
  # jax.debug.print('effect of padding: {x} ',
  #                 x=jnp.linalg.norm(momentum_reshaped[mgd_shape[0]:,:mgd_shape[1]]) if mgd_shape[0]<momentum_reshaped.shape[0] else 0.0)
  if not global_grafting:
-   momentum_reshaped = momentum_reshaped/jnp.linalg.norm(momentum_reshaped.reshape(-1)) * jnp.linalg.norm(adam_update.reshape(-1))
+   momentum_reshaped = momentum_reshaped/jnp.linalg.norm(momentum_reshaped.reshape(-1),ord=2) * jnp.linalg.norm(adam_update.reshape(-1),ord=2)
 
 
  return momentum_reshaped
@@ -472,15 +580,14 @@ def scale_by_caspr(
 
    def stat_and_precond_init(param,state_type='stats'):
      mgd_shape = get_merged_shape(param.shape)
-     if len(param.shape) > 1:
+     if len(param.shape) > 1 and not sum([dim>20000 for dim in param.shape]):
        blkd_shape = get_blocked_shape(mgd_shape,block_size)
        st = jnp.zeros(blkd_shape)
        coeff = matrix_epsilon if state_type=='stats' else 1.0
        st = st.at[:,:].set(coeff*jnp.eye(block_size))
        return ShampooLRPair(L=st,R=jnp.copy(st))
      else:
-       blkd_shape = (1,)
-       return ShampooLRPair(L=jnp.zeros(blkd_shape, dtype=param.dtype),R=jnp.zeros(blkd_shape, dtype=param.dtype))
+       return ShampooLRPair(L=optax.MaskedNode(),R=optax.MaskedNode())
 
 
    stats = jax.tree_util.tree_map(functools.partial(stat_and_precond_init,state_type='stats'), params)
@@ -488,19 +595,26 @@ def scale_by_caspr(
 
    def lambda_init(param):
      mgd_shape = get_merged_shape(param.shape)
-     if len(param.shape) >1:
+     print('param_shape',param.shape)
+     if len(param.shape) >1 and not sum([dim>20000 for dim in param.shape]):
         blkd_shape = get_blocked_shape(mgd_shape,block_size)
         g1,g2,_,_ = blkd_shape
-        lambdR = jnp.ones((g1,g2,block_size), dtype=param.dtype)
-        lambdL = jnp.ones((g1,g2,block_size), dtype=param.dtype)
+
+        coeff = 1.0
+        st = jnp.zeros(blkd_shape)
+        st = st.at[:,:].set(coeff*jnp.eye(block_size))
+        lambdR = st
+        lambdL = jnp.copy(st)
+        print('lambdR',lambdR.shape,'lambdL',lambdL.shape)
         return LambdaRLPair(R=lambdR,L=lambdL)
      else:
-        blkd_shape = (1,)
-        return LambdaRLPair(R=jnp.zeros(blkd_shape, dtype=param.dtype),L=jnp.zeros(blkd_shape, dtype=param.dtype))
+        # blkd_shape = (1,)
+        return LambdaRLPair(R=optax.MaskedNode(),L=optax.MaskedNode())
    lambdas = jax.tree_util.tree_map(lambda_init,params)
+   preconds_lambdas = jax.tree_util.tree_map(lambda_init,params)
 
 
-   return ScaleByCasprState(count=jnp.zeros([], jnp.int32), mu=mu, nu=nu, stats=stats, preconds=preconds, lambdas=lambdas)
+   return ScaleByCasprState(count=jnp.zeros([], jnp.int32), mu=mu, nu=nu, stats=stats, preconds=preconds, lambdas=lambdas, preconds_lambdas=preconds_lambdas)
 
 
 
@@ -510,33 +624,40 @@ def scale_by_caspr(
    mu = update_moment(updates, state.mu, b1, 1)
    nu = update_moment_per_elem_norm(updates, state.nu, b2, 2)
    count_inc = state.count+1
-
+   print(state.stats)
+#    print(updates)
    #updating statistics
    stats = jax.tree_util.tree_map(
      lambda s,u: update_stats(s.L,s.R,u,block_size,b2),
      state.stats,updates,is_leaf=lambda x: type(x).__name__=='ShampooLRPair')
    exponent = exponent_override if exponent_override !=0 else (4 if caspr_p==2 or caspr_p==-1 else 2)
-
-   #updating preconditioners
-   preconds = jax.tree_util.tree_map(lambda s,p,m: update_preconds(s.L,s.R,p.L,
-                                                                 p.R,m,
-                                                                 exponent,
-                                                                 count_inc%preconditioning_compute_steps==0,
-                                                                 matrix_epsilon,
-                                                                 block_size,
-                                                                 relative_epsilon,
-                                                                 inverse_type,
-                                                                 error_tolerance,batch_axis_name),
-                                     stats,
-                                     state.preconds,
-                                     mu,is_leaf=lambda x: type(x).__name__=='ShampooLRPair')
-
-
-
    lambdas = jax.tree_util.tree_map(lambda p,l,s,u:update_lambdas(p,l,s,u,block_size,b2,count_inc,exponent),
-                                     preconds,state.lambdas,state.stats,updates,
+                                     state.preconds,state.lambdas,state.stats,updates,
                                      is_leaf=lambda x: type(x).__name__=='LambdaRLPair' or
                                      type(x).__name__=='ShampooLRPair')
+   #updating preconditioners
+   preconds = update_preconds_model(stats,state.preconds,mu,
+                                    exponent,
+                                    count_inc%preconditioning_compute_steps==0,
+                                    matrix_epsilon,
+                                    block_size,
+                                    relative_epsilon,
+                                    inverse_type,
+                                    error_tolerance,batch_axis_name)
+   preconds_lambdas = update_preconds_model(lambdas,state.preconds_lambdas,mu,
+                                    exponent,
+                                    count_inc%preconditioning_compute_steps==0,
+                                    1e-2,
+                                    block_size,
+                                    relative_epsilon,
+                                    inverse_type,
+                                    error_tolerance,batch_axis_name)
+
+
+#    lambdas = jax.tree_util.tree_map(lambda p,l,s,u:update_lambdas(p,l,s,u,block_size,b2,count_inc,exponent),
+#                                      preconds,state.lambdas,state.stats,updates,
+#                                      is_leaf=lambda x: type(x).__name__=='LambdaRLPair' or
+#                                      type(x).__name__=='ShampooLRPair')
    def print_fn(m,stat_type='mu'):
      print_fn = lambda m: jax.debug.print(
        "step {st} " + stat_type + " l2 {x}, " + stat_type + " l0 1e-5 {y}, " + stat_type + " l0 1e-7 {z}, " + stat_type + " l0 1e-10 {u}",
@@ -582,7 +703,7 @@ def scale_by_caspr(
      jax.tree_util.tree_map(functools.partial(print_fn,stat_type='adam_updates'), adam_updates)
      jax.tree_util.tree_map(functools.partial(print_fn,stat_type='stats'), stats)
      jax.tree_util.tree_map(functools.partial(print_fn,stat_type='preconds'), preconds)
-   return updates, ScaleByCasprState(count=count_inc, mu=mu, nu=nu, stats=stats, preconds=preconds, lambdas=lambdas)
+   return updates, ScaleByCasprState(count=count_inc, mu=mu, nu=nu, stats=stats, preconds=preconds, lambdas=lambdas,preconds_lambdas=preconds_lambdas)
 
 
  return optax.GradientTransformation(init_fn, update_fn)
@@ -590,7 +711,7 @@ def scale_by_caspr(
 
 
 
-def efficient_caspr_adaptive(
+def efficient_caspr_adaptive_full_matrix_dist_inv(
  learning_rate: ScalarOrSchedule,
  b1: float = 0.9,
  b2: float = 0.999,
@@ -685,106 +806,3 @@ def efficient_caspr_adaptive(
      optax.add_decayed_weights(weight_decay, mask),
      _scale_by_learning_rate(learning_rate),
  )
-
-
-
-
-def efficient_cascaded_caspr(
- learning_rate: ScalarOrSchedule,
- b1: float = 0.9,
- b2: float = 0.999,
- eps: float = 1e-8,
- matrix_epsilon: float = 1e-6,
- eps_root: float = 0.0,
- block_size: int = 1024,
- preconditioning_compute_steps: int = 20,
- start_preconditioning_step: int = 101,
- exponent_override: int = 0,
- nesterov: bool = True,
- mu_dtype: Optional[chex.ArrayDType] = None,
- caspr_p: int = 2,
- relative_epsilon: bool = True,
- inverse_type: str = 'eigh',
- error_tolerance: float= 1e-2,
- weight_decay: float = 1e-4,
- mask: Optional[Union[Callable[[optax.Params], Any], None]] = None,
- global_grafting: bool = False,
- batch_axis_name: Any = None
-) -> optax.GradientTransformation:
- """Adam with weight decay regularization.
-
-
- AdamW uses weight decay to regularize learning towards small weights, as
- this leads to better generalization. In SGD you can also use L2 regularization
- to implement this as an additive loss term, however L2 regularization
- does not behave as intended for adaptive gradient algorithms such as Adam.
-
-
- References:
-   Loshchilov et al, 2019: https://arxiv.org/abs/1711.05101
-
-
- Args:
-   learning_rate: A fixed global scaling factor.
-   b1: Exponential decay rate to track the first moment of past gradients.
-   b2: Exponential decay rate to track the second moment of past gradients.
-   eps: A small constant applied to denominator outside of the square root
-     (as in the Adam paper) to avoid dividing by zero when rescaling.
-   eps_root: A small constant applied to denominator inside the square root (as
-     in RMSProp), to avoid dividing by zero when rescaling. This is needed for
-     instance when computing (meta-)gradients through Adam.
-   mu_dtype: Optional `dtype` to be used for the first order accumulator; if
-     `None` then the `dtype` is inferred from `params` and `updates`.
-   weight_decay: Strength of the weight decay regularization. Note that this
-     weight decay is multiplied with the learning rate. This is consistent
-     with other frameworks such as PyTorch, but different from
-     (Loshchilov et al, 2019) where the weight decay is only multiplied with
-     the "schedule multiplier", but not the base learning rate.
-   mask: A tree with same structure as (or a prefix of) the params PyTree,
-     or a Callable that returns such a pytree given the params/updates.
-     The leaves should be booleans, `True` for leaves/subtrees you want to
-     apply the weight decay to, and `False` for those you want to skip. Note
-     that the Adam gradient transformations are applied to all parameters.
-
-
- Returns:
-   The corresponding `GradientTransformation`.
- """
- # Using jax.debug.print to print the parameters
- jax.debug.print("""
- learning_rate: {learning_rate},
- b1: {b1},
- b2: {b2},
- eps: {eps},
- matrix_epsilon: {matrix_epsilon},
- eps_root: {eps_root},
- block_size: {block_size},
- preconditioning_compute_steps: {preconditioning_compute_steps},
- start_preconditioning_step: {start_preconditioning_step},
- exponent_override: {exponent_override},
- nesterov: {nesterov},
- mu_dtype: {mu_dtype},
- caspr_p: {caspr_p},
- relative_epsilon: {relative_epsilon},
- error_tolerance: {error_tolerance},
- weight_decay: {weight_decay},
- mask: {mask},
- global_grafting: {global_grafting},
- """, learning_rate=learning_rate, b1=b1, b2=b2, eps=eps, matrix_epsilon=matrix_epsilon,
-     eps_root=eps_root, block_size=block_size, preconditioning_compute_steps=preconditioning_compute_steps,
-     start_preconditioning_step=start_preconditioning_step, exponent_override=exponent_override, nesterov=nesterov,
-     mu_dtype=mu_dtype, caspr_p=caspr_p, relative_epsilon=relative_epsilon,
-     error_tolerance=error_tolerance, weight_decay=weight_decay, mask=mask, global_grafting=global_grafting)
- return optax.chain(
-     scale_by_caspr(
-         0.0, b2, eps, matrix_epsilon, eps_root, block_size,
-         preconditioning_compute_steps, start_preconditioning_step,
-         exponent_override, nesterov, mu_dtype,
-         caspr_p, relative_epsilon, inverse_type, error_tolerance,global_grafting,
-         batch_axis_name=batch_axis_name),
-     optax.scale_by_adam(
-         b1, b2, eps, eps_root),
-     optax.add_decayed_weights(weight_decay, mask),
-     _scale_by_learning_rate(learning_rate),
- )
-
