@@ -187,7 +187,9 @@ def init_optimizer_state(workload: spec.Workload,
        lr_schedule_fn,
        b1=1.0 - hyperparameters.one_minus_beta1,
        b2=hyperparameters.beta2,
+       b3=hyperparameters.beta3,
        eps=1e-8,
+       lamb_eps=hyperparameters.lamb_eps,
        matrix_epsilon=1e-6,
        eps_root=0.0,
        block_size=1024,
@@ -307,20 +309,17 @@ def update_params(workload: spec.Workload,
   # print(new_optimizer_state)
   flattened_lambdas,_=jax.tree_flatten(new_optimizer_state[0].lambdas)
   # print('flattened lambdas',[ lambd.L.shape for lambd in flattened_lambdas])
-  lambdR,lambdL = flattened_lambdas[0],flattened_lambdas[1]
-  flattened_preconds,_ = jax.tree_flatten(new_optimizer_state[0].preconds)
-  precondL,precondR = flattened_preconds[0],flattened_preconds[1]
-  # print("lambdL shape",lambdL.shape)
+  lambdL,lambdR = flattened_lambdas[0],flattened_lambdas[1]
+  # print(lambdL.shape)
+  # flattened_lambdas,_=jax.tree_flatten(new_optimizer_state[0].preconds,is_leaf=lambda x: type(x).__name__=='ShampooLRPair')
+  tr = lambda x: jnp.mean(jnp.einsum("lijkk->lij",x))
   # Log loss, grad_norm.
   if global_step % 100 == 0 and workload.metrics_logger is not None:
-    trfunc = lambda x: jnp.einsum("lijkk->lij",x)
     workload.metrics_logger.append_scalar_metrics(
         {
             'loss': loss[0],
-            'lambdaL_trace': jnp.mean(trfunc(lambdL)),
-            'lambdaR_trace': jnp.mean(trfunc(lambdR)),
-            'precondL_trace': jnp.mean(trfunc(precondL)),
-            'precondR_trace': jnp.mean(trfunc(precondR)),
+            'lambdaL_trace': tr(lambdL),
+            'lambdaR_trace': tr(lambdR),
             'grad_norm': grad_norm[0]
         }, global_step)
   return (new_optimizer_state, opt_update_fn), new_params, new_model_state

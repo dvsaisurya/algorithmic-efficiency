@@ -168,11 +168,11 @@ def update_lambdas(precond,lambd,prev_stat,grad,block_size,b3,count,exponent,pre
     g1,g2,_,_ = blkd_shape
     print(mgd_shape, blkd_shape)
     grad = grad.reshape(g1,block_size,g2,block_size)
-
+    
     #transpose the grid dimensions to the front
     grad = grad.transpose((0,2,1,3))
     print('changed code')
-
+    
     #computing tr(Pr_tR_{t-1})/n
     tr = lambda x,y: jnp.sum(jnp.sum(x*y,axis=-1),axis=-1)
 
@@ -206,10 +206,10 @@ def update_lambdas(precond,lambd,prev_stat,grad,block_size,b3,count,exponent,pre
         lambdL_res = jnp.einsum("ijkm,ijnm->ijkn",right_grad,right_grad)/N[:,:,np.newaxis,np.newaxis]
 
 
-
-
+  
+    
     lambdL = b3*lambd.L*lambdL_coeff +(1-b3)* lambdL_res
-
+    
     Pl_t = precond.L
     if exponent==2:
         lambdR_coeff = jax.lax.cond(precondition,
@@ -593,19 +593,13 @@ def scale_by_caspr(
           lambda s,u: update_stats(s.L,s.R,u,block_size,b2),
           state.stats,updates,is_leaf=lambda x: type(x).__name__=='ShampooLRPair')
         exponent = exponent_override if exponent_override !=0 else (4 if caspr_p==2 or caspr_p==-1 else 2)
-
+        
         lambdas = jax.tree_util.tree_map(lambda p,l,s,u:update_lambdas(p,l,s,u,block_size,b3,count_inc,exponent,count_inc%preconditioning_compute_steps==0),
                                           state.preconds,state.lambdas,state.oldstats,updates,
                                           is_leaf=lambda x: type(x).__name__=='LambdaRLPair' or
                                           type(x).__name__=='ShampooLRPair')
 
-        oldstats = jax.lax.cond(count_inc%preconditioning_compute_steps==0, lambda: stats, lambda: state.oldstats)
-
-        nested_preconds = {"preconds":state.preconds,"preconds_lambdas":state.preconds_lambdas}
-        nested_stats = {"preconds":stats,"preconds_lambdas":lambdas}
-        nested_mu = {"preconds":mu,"preconds_lambdas":mu}
-
-        nested_preconds = update_preconds_model(nested_stats,nested_preconds,nested_mu,
+        preconds = update_preconds_model(stats,state.preconds,mu,
                                         exponent,
                                         count_inc%preconditioning_compute_steps==0,
                                         matrix_epsilon,
@@ -613,8 +607,17 @@ def scale_by_caspr(
                                         relative_epsilon,
                                         inverse_type,
                                         error_tolerance,batch_axis_name)
-
-        preconds,preconds_lambdas = nested_preconds["preconds"],nested_preconds["preconds_lambdas"]
+        oldstats = jax.lax.cond(count_inc%preconditioning_compute_steps==0, lambda: stats, lambda: state.oldstats)
+        
+      
+        preconds_lambdas = update_preconds_model(lambdas,state.preconds_lambdas,mu,
+                                        exponent,
+                                        count_inc%preconditioning_compute_steps==0,
+                                        lamb_eps,
+                                        block_size,
+                                        relative_epsilon,
+                                        inverse_type,
+                                        error_tolerance,batch_axis_name)
 
         def print_fn(m,stat_type='mu'):
             print_fn = lambda m: jax.debug.print(
@@ -641,7 +644,7 @@ def scale_by_caspr(
           lambda p,m,u,l: caspr_update_fn(p,m,u,l,block_size,caspr_p,global_grafting,exponent),
           preconds,mu_hat,adam_updates,preconds_lambdas,
           is_leaf=lambda x: type(x).__name__=='ShampooLRPair' or type(x).__name__=='LambdaRLPair')
-
+        
 
 
         updates = jax.lax.cond(count_inc>start_preconditioning_step, lambda : caspr_updates, lambda : adam_updates)
@@ -659,7 +662,7 @@ def scale_by_caspr(
 
 
 
-def efficient_caspr_adaptive_full_matrix_dist_inv(
+def efficient_caspr_adaptive_dist_inv(
     learning_rate: ScalarOrSchedule,
     b1: float = 0.9,
     b2: float = 0.999,
@@ -677,7 +680,7 @@ def efficient_caspr_adaptive_full_matrix_dist_inv(
     caspr_p: int = 2,
     relative_epsilon: bool = True,
     inverse_type: str = 'eigh',
-    error_tolerance: float= 1e-5,
+    error_tolerance: float= 1e-4,
     weight_decay: float = 1e-4,
     mask: Optional[Union[Callable[[optax.Params], Any], None]] = None,
     global_grafting: bool = False,
