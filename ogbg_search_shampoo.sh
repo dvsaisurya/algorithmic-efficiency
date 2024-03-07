@@ -4,9 +4,9 @@ bash venv_setup.sh
 source env/bin/activate
 mkdir -p logs
 #used b3 of 0.8 which is fixed throughout the training and runs caspr_adaptive with hparam_1 for 5 times with different seeds.
-EXP_DIR="/home/saisurya/Projects/algorithmic-efficiency/eff_caspr_hm_adaptive"
-EXP_NAME="eff_caspr_hm_adaptive_full_matrix_ogbg_search_0"
-SUBMISSION_PATH="prize_qualification_baselines/external_tuning/efficient_caspr_adaptive_full_matrix_dist_inv_target_setting.py"
+EXP_DIR="/home/saisurya/Projects/algorithmic-efficiency/eff_caspr_shampoo"
+EXP_NAME="eff_caspr_shampoo_ogbg_search_0"
+SUBMISSION_PATH="prize_qualification_baselines/external_tuning/efficient_caspr_shampoo_dist_inv_target_setting.py"
 SEARCH_SPACE_PATH="tuning_search_space_caspr_adaptive_full_matrix_ogbg_0.json"
 WORKLOAD="ogbg"
 DATA_DIR="~/data/ogbg"
