@@ -1,0 +1,52 @@
+[
+    {
+        "learning_rate": 0.008086256236416118,
+        "one_minus_beta1": 0.07532576268436117,
+        "beta2": 0.999,
+        "warmup_factor": 0.05,
+        "weight_decay": 0.007222390217571119,
+        "label_smoothing": 0.1,
+        "dropout_rate": 0.1,
+        "beta3": 0.9
+    },
+    {
+        "learning_rate": 0.005882969486259944,
+        "one_minus_beta1": 0.010032175816324665,
+        "beta2": 0.999,
+        "warmup_factor": 0.05,
+        "weight_decay": 0.07183678533621907,
+        "label_smoothing": 0.1,
+        "dropout_rate": 0.1,
+        "beta3": 0.99
+    },
+    {
+        "learning_rate": 0.00036506503629047917,
+        "one_minus_beta1": 0.014928665599993736,
+        "beta2": 0.999,
+        "warmup_factor": 0.05,
+        "weight_decay": 0.030004502983107955,
+        "label_smoothing": 0.1,
+        "dropout_rate": 0.1,
+        "beta3": 0.999
+    },
+    {
+        "learning_rate": 0.00037228182556653996,
+        "one_minus_beta1": 0.11435700729162357,
+        "beta2": 0.999,
+        "warmup_factor": 0.05,
+        "weight_decay": 0.08188813071872622,
+        "label_smoothing": 0.2,
+        "dropout_rate": 0.1,
+        "beta3": 0.999
+    },
+    {
+        "learning_rate": 0.006813316302498375,
+        "one_minus_beta1": 0.12821513280459113,
+        "beta2": 0.999,
+        "warmup_factor": 0.05,
+        "weight_decay": 0.16109064043477106,
+        "label_smoothing": 0.1,
+        "dropout_rate": 0.1,
+        "beta3": 0.9
+    }
+]

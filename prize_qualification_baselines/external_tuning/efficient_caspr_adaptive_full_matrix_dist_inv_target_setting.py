@@ -23,7 +23,25 @@ import jax.numpy as jnp
 import optax
 
 from algorithmic_efficiency import spec
-from algorithmic_efficiency.efficient_caspr_adaptive_full_matrix_dist_inv import efficient_caspr_adaptive_full_matrix_dist_inv
+from algorithmic_efficiency.efficient_caspr_adaptive_full_matrix_dist_inv import efficient_caspr_adaptive_full_matrix_dist_inv, TrainingMetrics
+
+from flax import struct
+
+# def _default_zero_field():
+#   return struct.field(
+#       default_factory=functools.partial(jnp.array, 0, jnp.float32))
+
+# @struct.dataclass
+# class TrainingMetrics:
+#     root_errors: Union[chex.Array, optax.MaskedNode] = _default_zero_field()
+#     root_errors_lambdas: Union[chex.Array, optax.MaskedNode] = _default_zero_field()
+#     root_failure_perc: Union[chex.Array, optax.MaskedNode] = _default_zero_field()
+#     root_failure_perc_lambdas: Union[chex.Array, optax.MaskedNode] = _default_zero_field()
+#     coeff: Union[chex.Array,optax.MaskedNode] = _default_zero_field()
+#     res: Union[chex.Array,optax.MaskedNode] = _default_zero_field()
+#     lambd: Union[chex.Array,optax.MaskedNode] = _default_zero_field()
+#     stat: Union[chex.Array,optax.MaskedNode] = _default_zero_field()
+    
 
 _GRAD_CLIP_EPS = 1e-6
 
@@ -203,7 +221,8 @@ def init_optimizer_state(workload: spec.Workload,
        error_tolerance=1e-2,
        weight_decay=hyperparameters.weight_decay,
        global_grafting=False,
-       batch_axis_name='batch'
+       batch_axis_name='batch',
+       precond_type="left"
      )
   params_zeros_like = jax.tree_map(lambda s: jnp.zeros(s.shape_tuple),
                                    workload.param_shapes)
@@ -269,6 +288,54 @@ def pmapped_train_step(workload,
   return new_optimizer_state, updated_params, new_model_state, loss, grad_norm
 
 
+def agg_metrics(new_optimizer_state):
+
+    #code for the target setting, replace Testing with the ScaleByCasprState
+    # print(new_optimizer_state[1])
+    metrics = new_optimizer_state[0].metrics
+    # print("metrics ",metrics)
+    metrics_flat,tree_def = jax.tree_util.tree_flatten(metrics,is_leaf = lambda x: isinstance(x,TrainingMetrics))
+    # print("metrics_flat " ,metrics_flat)
+    from functools import reduce
+
+
+    
+    # Define a function that will be used to add two corresponding leaves
+    def add_trees(tree1, tree2):
+        # This function will be applied to each leaf
+        def add_leaves(leaf1, leaf2):
+            if type(leaf1)==optax.MaskedNode and type(leaf2)==optax.MaskedNode:
+                return jnp.array(0.0)
+            if type(leaf1)==optax.MaskedNode:
+                return leaf2
+            if type(leaf2)==optax.MaskedNode:
+                return leaf1
+            return leaf1 + leaf2
+        
+        # Use jax.tree_map to apply add_leaves to each leaf in tree1 and tree2
+        # Note that jax.tree_map can only map functions across the leaves of a single pytree,
+        # so we need to use a lambda function to pass additional arguments (like leaf2 from tree2)
+        return jax.tree_util.tree_map(lambda leaf1, leaf2: add_leaves(leaf1, leaf2), tree1, tree2, is_leaf=lambda x: type(x) in [optax.MaskedNode,chex.Array])
+
+    # Assuming you have a list of 100 pytrees
+    # pytrees = [pytree1, pytree2, ..., pytree100]
+
+    # Use functools.reduce to cumulatively apply the add_trees operation across all pytrees
+    aggregated_metrics = reduce(add_trees, metrics_flat)
+    # Use functools.reduce to cumulatively apply the summing operation across all pytrees
+    # aggregated_metrics = reduce(lambda acc, pytree: jax.tree_util.tree_multimap(sum_leaves, acc, pytree), metrics_flat[1:], metrics_flat[0])
+
+    metrics_count = jax.tree_util.tree_map(lambda x: 1.0 if isinstance(x,chex.Array) else 0.0, metrics_flat, is_leaf=lambda x: type(x) in [optax.MaskedNode,chex.Array])
+
+    metrics_count_agg = reduce(add_trees, metrics_count)
+
+    # print(metrics_count)
+    avg_metrics = jax.tree_util.tree_map(lambda x,y: x/y if y!=0.0 else jnp.array(0.0), aggregated_metrics,metrics_count_agg)
+    # print('avg_metrics', avg_metrics)
+    return avg_metrics
+
+
+
 def update_params(workload: spec.Workload,
                   current_param_container: spec.ParameterContainer,
                   current_params_types: spec.ParameterTypeTree,
@@ -295,6 +362,7 @@ def update_params(workload: spec.Workload,
     grad_clip = hyperparameters.grad_clip
   else:
     grad_clip = None
+  
   outputs = pmapped_train_step(workload,
                                opt_update_fn,
                                model_state,
@@ -307,19 +375,33 @@ def update_params(workload: spec.Workload,
   new_optimizer_state, new_params, new_model_state, loss, grad_norm = outputs
   #compute optimizer metrics:
   # print(new_optimizer_state)
-  flattened_lambdas,_=jax.tree_flatten(new_optimizer_state[0].lambdas)
-  # print('flattened lambdas',[ lambd.L.shape for lambd in flattened_lambdas])
-  lambdL,lambdR = flattened_lambdas[0],flattened_lambdas[1]
-  # print(lambdL.shape)
-  # flattened_lambdas,_=jax.tree_flatten(new_optimizer_state[0].preconds,is_leaf=lambda x: type(x).__name__=='ShampooLRPair')
-  tr = lambda x: jnp.mean(jnp.einsum("lijkk->lij",x))
+
+# @struct.dataclass
+# class TrainingMetrics:
+#     root_errors: Union[chex.Array, optax.MaskedNode] = _default_zero_field()
+#     root_errors_lambdas: Union[chex.Array, optax.MaskedNode] = _default_zero_field()
+#     root_failure_perc: Union[chex.Array, optax.MaskedNode] = _default_zero_field()
+#     root_failure_perc_lambdas: Union[chex.Array, optax.MaskedNode] = _default_zero_field()
+#     coeff: Union[chex.Array,optax.MaskedNode] = _default_zero_field()
+#     res: Union[chex.Array,optax.MaskedNode] = _default_zero_field()
+#     lambd: Union[chex.Array,optax.MaskedNode] = _default_zero_field()
+#     stat: Union[chex.Array,optax.MaskedNode] = _default_zero_field()
+    
+  avg_metrics = agg_metrics(new_optimizer_state)
+  # print(avg_metrics)
   # Log loss, grad_norm.
   if global_step % 100 == 0 and workload.metrics_logger is not None:
     workload.metrics_logger.append_scalar_metrics(
         {
             'loss': loss[0],
-            'lambdaL_trace': tr(lambdL),
-            'lambdaR_trace': tr(lambdR),
+            'root_errors': avg_metrics.root_errors[0],
+            'root_errors_lambdas': avg_metrics.root_errors_lambdas[0],
+            'root_failure_perc': avg_metrics.root_failure_perc[0],
+            'root_failure_perc_lambdas': avg_metrics.root_failure_perc_lambdas[0],
+            'coeff': avg_metrics.coeff[0],
+            'residual': avg_metrics.res[0],
+            'lambda_trace':avg_metrics.lambd[0],
+            'stat_trace': avg_metrics.stat[0],
             'grad_norm': grad_norm[0]
         }, global_step)
   return (new_optimizer_state, opt_update_fn), new_params, new_model_state
