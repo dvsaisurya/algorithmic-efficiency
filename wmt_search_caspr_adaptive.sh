@@ -1,5 +1,5 @@
 
-bash venv_setup.sh
+# bash venv_setup.sh
 
 source env/bin/activate
 mkdir -p logs

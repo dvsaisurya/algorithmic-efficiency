@@ -205,24 +205,25 @@ def init_optimizer_state(workload: spec.Workload,
        lr_schedule_fn,
        b1=1.0 - hyperparameters.one_minus_beta1,
        b2=hyperparameters.beta2,
-       b3=hyperparameters.beta3,
+       b3=hyperparameters.beta2,
        eps=1e-8,
        lamb_eps=1e-6,
        matrix_epsilon=1e-6,
        eps_root=0.0,
        block_size=1024,
-       preconditioning_compute_steps=10,
+       preconditioning_compute_steps=20,
        start_preconditioning_step=101,
        exponent_override=0,
        nesterov=True,
        caspr_p=1,
        relative_epsilon=True,
-       inverse_type='eigh',
-       error_tolerance=1e-2,
+       inverse_type="coupled newton",
+       error_tolerance=1e-1,
        weight_decay=hyperparameters.weight_decay,
        global_grafting=False,
        batch_axis_name='batch',
-       precond_type="left"
+       precond_type="left",
+       log_metrics=True
      )
   params_zeros_like = jax.tree_map(lambda s: jnp.zeros(s.shape_tuple),
                                    workload.param_shapes)
@@ -386,24 +387,34 @@ def update_params(workload: spec.Workload,
 #     res: Union[chex.Array,optax.MaskedNode] = _default_zero_field()
 #     lambd: Union[chex.Array,optax.MaskedNode] = _default_zero_field()
 #     stat: Union[chex.Array,optax.MaskedNode] = _default_zero_field()
-    
-  avg_metrics = agg_metrics(new_optimizer_state)
+  
+
   # print(avg_metrics)
   # Log loss, grad_norm.
   if global_step % 100 == 0 and workload.metrics_logger is not None:
-    workload.metrics_logger.append_scalar_metrics(
-        {
-            'loss': loss[0],
-            'root_errors': avg_metrics.root_errors[0],
-            'root_errors_lambdas': avg_metrics.root_errors_lambdas[0],
-            'root_failure_perc': avg_metrics.root_failure_perc[0],
-            'root_failure_perc_lambdas': avg_metrics.root_failure_perc_lambdas[0],
-            'coeff': avg_metrics.coeff[0],
-            'residual': avg_metrics.res[0],
-            'lambda_trace':avg_metrics.lambd[0],
-            'stat_trace': avg_metrics.stat[0],
-            'grad_norm': grad_norm[0]
-        }, global_step)
+    log_metrics=True
+    if log_metrics:
+      avg_metrics = agg_metrics(new_optimizer_state)
+    if log_metrics:
+      workload.metrics_logger.append_scalar_metrics(
+          {
+              'loss': loss[0],
+              'root_errors': avg_metrics.root_errors[0],
+              'root_errors_lambdas': avg_metrics.root_errors_lambdas[0],
+              'root_failure_perc': avg_metrics.root_failure_perc[0],
+              'root_failure_perc_lambdas': avg_metrics.root_failure_perc_lambdas[0],
+              'coeff': avg_metrics.coeff[0],
+              'residual': avg_metrics.res[0],
+              'lambda_trace':avg_metrics.lambd[0],
+              'stat_trace': avg_metrics.stat[0],
+              'grad_norm': grad_norm[0]
+          }, global_step)
+    else:
+      workload.metrics_logger.append_scalar_metrics(
+          {
+              'loss': loss[0],
+              'grad_norm': grad_norm[0]
+          }, global_step)
   return (new_optimizer_state, opt_update_fn), new_params, new_model_state
 
 

@@ -15,6 +15,7 @@ import math
 from jax import lax
 import numpy as np
 
+from reference_algorithms.paper_baselines.shampoo.jax.distributed_shampoo import matrix_inverse_pth_root
 
 from flax import struct
 
@@ -189,7 +190,7 @@ def get_blocked_shape(merged_shape,block_size):
     return (math.ceil(d1/block_size),math.ceil(d2/block_size),block_size,block_size)
 
 
-def update_stats(L,R,grad,block_size,b2,precond_type="all"):
+def update_stats(L,R,grad,block_size,b2,precond_type="all",log_metrics=False):
     #TODO: update statistics once every few steps
     #  L, R = s.L, s.R
     #pad the gradient to be a multiple of block_size
@@ -230,11 +231,11 @@ def update_stats(L,R,grad,block_size,b2,precond_type="all"):
     max_ev_L = lambda x: ((jnp.einsum("ijkk->ij",x))/M)[:,:,jnp.newaxis,jnp.newaxis]
     
     return UpdateStats(stat=ShampooLRPair(L,R),
-                       stat_max_ev=ShampooLRPair(L=jnp.mean(max_ev_L(L)) if not isinstance(L,optax.MaskedNode) else optax.MaskedNode(),
-                                                 R=jnp.mean(max_ev_R(R))  if not isinstance(R,optax.MaskedNode) else optax.MaskedNode()))
+                       stat_max_ev=ShampooLRPair(L=(jnp.mean(max_ev_L(L)) if log_metrics else jnp.array(1.0)) if not isinstance(L,optax.MaskedNode) else optax.MaskedNode(),
+                                                 R=(jnp.mean(max_ev_R(R)) if log_metrics else jnp.array(1.0)) if not isinstance(R,optax.MaskedNode) else optax.MaskedNode()))
 
 
-def update_lambdas(precond,lambd,prev_stat,grad,block_size,b3,count,exponent,precondition,matrix_epsilon,precond_type="all"):
+def update_lambdas(precond,lambd,prev_stat,grad,block_size,b3,count,exponent,precondition,matrix_epsilon,precond_type="all",log_metrics=False):
     # print('prev lambda', lambd.L.shape)
     if len(grad.shape)<=1 or sum([ dim>5000 for dim in grad.shape]):
         return UpdateLambdas(lambd=lambd,
@@ -298,13 +299,13 @@ def update_lambdas(precond,lambd,prev_stat,grad,block_size,b3,count,exponent,pre
             lambdL_res = jnp.einsum("ijkm,ijnm->ijkn",right_grad,right_grad)/N[:,:,np.newaxis,np.newaxis]
 
 
-        lambdL_res_max_ev = jnp.mean(max_ev_L(lambdL_res))
-        lambdL_coeff_mean = jnp.mean(lambdL_coeff)
+        lambdL_res_max_ev = jnp.mean(max_ev_L(lambdL_res)) if log_metrics else jnp.array(1.0)
+        lambdL_coeff_mean = jnp.mean(lambdL_coeff) if log_metrics else jnp.array(1.0)
         
         lambdL = b3*lambd.L*lambdL_coeff +(1-b3)* lambdL_res
         lambdL_bool = (jnp.logical_or(lambdL>1e36,lambdL<-1e36)).sum(axis=-1).sum(axis=-1)
         lambdL = jnp.where(lambdL_bool[:,:,jnp.newaxis,jnp.newaxis], Im,lambdL)
-        lambdL_max_ev = jnp.mean(max_ev_L(lambdL))
+        lambdL_max_ev = jnp.mean(max_ev_L(lambdL)) if log_metrics else jnp.array(1.0)
         print('after lambda L',lambdL.shape)
     
     lambdR = optax.MaskedNode()
@@ -331,12 +332,12 @@ def update_lambdas(precond,lambd,prev_stat,grad,block_size,b3,count,exponent,pre
             lambdR_res = jnp.einsum("ijkm,ijnm->ijkn",left_grad,left_grad)/M[:,:,np.newaxis,np.newaxis]
         else:
             lambdR_res = jnp.einsum("ijlk,ijlm,ijmn->ijkn",grad,Pl_t,grad)/M[:,:,np.newaxis,np.newaxis]
-        lambdR_res_max_ev = jnp.mean(max_ev_R(lambdR_res))
+        lambdR_res_max_ev = jnp.mean(max_ev_R(lambdR_res)) if log_metrics else jnp.array(1.0)
         lambdR =  b3*lambd.R*lambdR_coeff + (1-b3)*lambdR_res
         lambdR_bool = (jnp.logical_or(lambdR>1e36,lambdR<-1e36)).sum(axis=-1).sum(axis=-1)
         lambdR = jnp.where(lambdR_bool[:,:,jnp.newaxis,jnp.newaxis],In,lambdR)
-        lambdR_max_ev = jnp.mean(max_ev_R(lambdR))
-        lambdR_coeff_mean = jnp.mean(lambdR_coeff)
+        lambdR_max_ev = jnp.mean(max_ev_R(lambdR)) if log_metrics else jnp.array(1.0)
+        lambdR_coeff_mean = jnp.mean(lambdR_coeff) if log_metrics else jnp.array(1.0)
         # jax.debug.print("lambdR_coeff_mean {x}",x=lambdR_coeff_mean)
         print('after lambda R',lambdR.shape)
     return UpdateLambdas(lambd=LambdaRLPair(R=lambdR, L=lambdL),
@@ -360,7 +361,11 @@ def eigh_inverse(stat,exponent=4,epsilon=1e-6,relative_epsilon=True):
     return mm(eigvecs,(inv_eigvals[:,jnp.newaxis]*eigvecs.T)),error
 
 
-
+def coupled_newton_inverse(stat,exponent=4,epsilon=1e-6,relative_epsilon=True):
+    inv_pth_root,metrics = matrix_inverse_pth_root(stat,exponent,ridge_epsilon=epsilon,error_tolerance=1e-6,
+                            relative_matrix_epsilon=relative_epsilon)
+    error = metrics.inverse_pth_root_errors
+    return inv_pth_root,error
 
 def cholesky_inverse(stat,exponent=4,epsilon=1e-6,relative_epsilon=True):
     #exponent is not going to be used.
@@ -411,6 +416,8 @@ def get_inverses(stats,preconds,errors,exponent,precondition,epsilon,
             inverse_fn = eigh_inverse
         elif inverse_type=='cholesky':
             inverse_fn = cholesky_inverse
+        elif inverse_type=='coupled newton':
+            inverse_fn = coupled_newton_inverse
         elif inverse_type=='rsvd':
             raise NotImplemented
         #  stats = jnp.stack([L,R],axis=0)
@@ -642,7 +649,8 @@ def scale_by_caspr(
     verbose: bool= True,
     global_grafting: bool = False,
     batch_axis_name: Any = None,
-    precond_type: str = "all"
+    precond_type: str = "all",
+    log_metrics: bool = False
     ) -> optax.GradientTransformation:
     """Rescale updates according to the Adam algorithm.
 
@@ -758,7 +766,7 @@ def scale_by_caspr(
         print(updates)
         #updating statistics
         stats_updates = jax.tree_util.tree_map(
-          lambda s,u: update_stats(s.L,s.R,u,block_size,b2,precond_type),
+          lambda s,u: update_stats(s.L,s.R,u,block_size,b2,precond_type,log_metrics=log_metrics),
           state.stats,updates,is_leaf=lambda x: type(x).__name__=='ShampooLRPair')
         
         stats = jax.tree_util.tree_map(lambda x: x.stat,stats_updates,is_leaf= lambda x: isinstance(x,UpdateStats))
@@ -766,7 +774,10 @@ def scale_by_caspr(
         
         exponent = exponent_override if exponent_override !=0 else (4 if caspr_p==2 or caspr_p==-1 else 2)
 
-        lambda_updates = jax.tree_util.tree_map(lambda p,l,s,u:update_lambdas(p,l,s,u,block_size,b3,count_inc,exponent,count_inc%preconditioning_compute_steps==0,matrix_epsilon,precond_type),
+        lambda_updates = jax.tree_util.tree_map(lambda p,l,s,u:update_lambdas(p,l,s,u,block_size,b3,count_inc,exponent,
+                                                                                count_inc%preconditioning_compute_steps==0,
+                                                                                matrix_epsilon,precond_type,
+                                                                                log_metrics),
                                           state.preconds,state.lambdas,state.oldstats,updates,
                                           is_leaf=lambda x: type(x).__name__=='LambdaRLPair' or
                                           type(x).__name__=='ShampooLRPair')
@@ -919,7 +930,8 @@ def efficient_caspr_adaptive_full_matrix_dist_inv(
     mask: Optional[Union[Callable[[optax.Params], Any], None]] = None,
     global_grafting: bool = False,
     batch_axis_name: Any = None,
-    precond_type: str = "all"
+    precond_type: str = "all",
+    log_metrics: bool = False
 ) -> optax.GradientTransformation:
     """Adam with weight decay regularization.
 
@@ -979,18 +991,21 @@ def efficient_caspr_adaptive_full_matrix_dist_inv(
     error_tolerance: {error_tolerance},
     weight_decay: {weight_decay},
     mask: {mask},
-    global_grafting: {global_grafting}
+    global_grafting: {global_grafting},
+    precond_type: {precond_type},
+    log_metrics: {log_metrics}
     """, learning_rate=learning_rate, b1=b1, b2=b2, eps=eps, matrix_epsilon=matrix_epsilon,
         eps_root=eps_root, block_size=block_size, preconditioning_compute_steps=preconditioning_compute_steps,
         start_preconditioning_step=start_preconditioning_step, exponent_override=exponent_override, nesterov=nesterov,
         mu_dtype=mu_dtype, caspr_p=caspr_p, relative_epsilon=relative_epsilon,
-        error_tolerance=error_tolerance, weight_decay=weight_decay, mask=mask, global_grafting=global_grafting)
+        error_tolerance=error_tolerance, weight_decay=weight_decay, mask=mask, global_grafting=global_grafting,
+        precond_type=precond_type,log_metrics=log_metrics)
     return optax.chain(
         scale_by_caspr(
             b1, b2, b3, eps, lamb_eps, matrix_epsilon, eps_root, block_size,
             preconditioning_compute_steps, start_preconditioning_step,
             exponent_override, nesterov, mu_dtype,
-            caspr_p, relative_epsilon, inverse_type, error_tolerance,global_grafting,batch_axis_name=batch_axis_name,precond_type=precond_type),
+            caspr_p, relative_epsilon, inverse_type, error_tolerance,global_grafting,batch_axis_name=batch_axis_name,precond_type=precond_type,log_metrics=log_metrics),
         optax.add_decayed_weights(weight_decay, mask),
         _scale_by_learning_rate(learning_rate),
     )
