@@ -11,6 +11,8 @@ import numpy as np
 import optax
 import jax.numpy as jnp
 
+from reference_algorithms.paper_baselines.shampoo.jax.distributed_shampoo import matrix_inverse_pth_root
+
 
 # pylint:disable=no-value-for-parameter
 
@@ -171,7 +173,11 @@ def eigh_inverse(stat,exponent=4,epsilon=1e-6,relative_epsilon=True):
     return mm(eigvecs,(inv_eigvals[:,jnp.newaxis]*eigvecs.T)),error
 
 
-
+def coupled_newton_inverse(stat,exponent=4,epsilon=1e-6,relative_epsilon=True):
+    inv_pth_root,metrics = matrix_inverse_pth_root(stat,exponent,ridge_epsilon=epsilon,error_tolerance=1e-6,
+                            relative_matrix_epsilon=relative_epsilon)
+    error = metrics.inverse_pth_root_errors
+    return inv_pth_root,error
 
 def cholesky_inverse(stat,exponent=4,epsilon=1e-6,relative_epsilon=True):
         #exponent is not going to be used.
@@ -220,6 +226,8 @@ def get_inverses(stats,preconds,exponent,precondition,epsilon,
                         inverse_fn = eigh_inverse
                 elif inverse_type=='cholesky':
                         inverse_fn = cholesky_inverse
+                elif inverse_type=='coupled newton':
+                        inverse_fn = coupled_newton_inverse
                 elif inverse_type=='rsvd':
                         raise NotImplemented
                 #  stats = jnp.stack([L,R],axis=0)
