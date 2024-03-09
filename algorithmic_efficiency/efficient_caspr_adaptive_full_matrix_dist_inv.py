@@ -15,7 +15,7 @@ import math
 from jax import lax
 import numpy as np
 
-from reference_algorithms.paper_baselines.shampoo.jax.distributed_shampoo import matrix_inverse_pth_root
+from reference_algorithms.paper_baselines.shampoo.jax.distributed_shampoo import matrix_inverse_pth_root, power_iteration
 
 from flax import struct
 
@@ -279,7 +279,7 @@ def update_lambdas(precond,lambd,prev_stat,grad,block_size,b3,count,exponent,pre
     lambdL_res_max_ev = optax.MaskedNode()
     lambdL_max_ev = optax.MaskedNode()
     if precond_type in ["all","right"]:
-        prev_R = prev_stat.R+matrix_epsilon*max_ev_R(prev_stat.R)*In
+        prev_R = prev_stat.R
         Pr_t = precond.R
         if exponent==2:
             lambdL_coeff = jax.lax.cond(precondition,
@@ -314,7 +314,7 @@ def update_lambdas(precond,lambd,prev_stat,grad,block_size,b3,count,exponent,pre
     lambdR_max_ev = optax.MaskedNode()
     if precond_type in ["all","left"]:
 
-        prev_L = prev_stat.L+matrix_epsilon*max_ev_L(prev_stat.L)*Im
+        prev_L = prev_stat.L
         Pl_t = precond.L
         if exponent==2:
             lambdR_coeff = jax.lax.cond(precondition,
@@ -362,10 +362,12 @@ def eigh_inverse(stat,exponent=4,epsilon=1e-6,relative_epsilon=True):
 
 
 def coupled_newton_inverse(stat,exponent=4,epsilon=1e-6,relative_epsilon=True):
+    trace = (jnp.trace(stat)/stat.shape[0]+1e-30)
+    stat = stat/trace
     inv_pth_root,metrics = matrix_inverse_pth_root(stat,exponent,ridge_epsilon=epsilon,error_tolerance=1e-6,
                             relative_matrix_epsilon=relative_epsilon)
     error = metrics.inverse_pth_root_errors
-    return inv_pth_root,error
+    return inv_pth_root*(trace**(-1/exponent)),error
 
 def cholesky_inverse(stat,exponent=4,epsilon=1e-6,relative_epsilon=True):
     #exponent is not going to be used.
@@ -787,7 +789,15 @@ def scale_by_caspr(
         coeffs = jax.tree_util.tree_map(lambda x: x.coeff,lambda_updates, is_leaf=lambda x: isinstance(x,UpdateLambdas))
         residuals = jax.tree_util.tree_map(lambda x: x.res,lambda_updates, is_leaf=lambda x: isinstance(x,UpdateLambdas))
 
-        oldstats = jax.lax.cond(count_inc%preconditioning_compute_steps==0, lambda: stats, lambda: state.oldstats)
+        def regularized_stat(stat):
+            g1,g2 = stat.shape[0],stat.shape[1]
+            block_size = stat.shape[-1]
+            trval = (jnp.einsum("ijkk->ij",stat)/stat.shape[-1]+1e-30).reshape(-1)[:,jnp.newaxis,jnp.newaxis]
+            max_ev = (jax.vmap(power_iteration)(stat.reshape(-1,block_size,block_size)/trval)[1]).reshape(g1,g2,1,1) if inverse_type=='coupled newton' else jnp.array(1.0)
+            return stat+(matrix_epsilon*trval.reshape(g1,g2,1,1))*max_ev*jnp.eye(stat.shape[-1])[jnp.newaxis,jnp.newaxis,:,:]
+        
+
+        oldstats = jax.lax.cond(count_inc%preconditioning_compute_steps==0, lambda: jax.tree_util.tree_map(regularized_stat,stats), lambda: state.oldstats)
 
         nested_preconds = {"preconds":state.preconds,"preconds_lambdas":state.preconds_lambdas}
         nested_stats = {"preconds":stats,"preconds_lambdas":lambdas}

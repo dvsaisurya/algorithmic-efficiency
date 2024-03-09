@@ -174,10 +174,12 @@ def eigh_inverse(stat,exponent=4,epsilon=1e-6,relative_epsilon=True):
 
 
 def coupled_newton_inverse(stat,exponent=4,epsilon=1e-6,relative_epsilon=True):
+    trace = (jnp.trace(stat)/stat.shape[0]+1e-30)
+    stat = stat/trace
     inv_pth_root,metrics = matrix_inverse_pth_root(stat,exponent,ridge_epsilon=epsilon,error_tolerance=1e-6,
                             relative_matrix_epsilon=relative_epsilon)
     error = metrics.inverse_pth_root_errors
-    return inv_pth_root,error
+    return inv_pth_root*(trace**(-1/exponent)),error
 
 def cholesky_inverse(stat,exponent=4,epsilon=1e-6,relative_epsilon=True):
         #exponent is not going to be used.
