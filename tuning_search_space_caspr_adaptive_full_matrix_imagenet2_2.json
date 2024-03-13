@@ -1,0 +1,38 @@
+[
+    {
+        "learning_rate": 0.0019814680146414726,
+        "one_minus_beta1": 0.07758862577375368,
+        "beta2": 0.99,
+        "warmup_factor": 0.05,
+        "weight_decay": 0.010340635370188849,
+        "label_smoothing": 0.1,
+        "dropout_rate": 0.1
+    },
+    {
+        "learning_rate": 0.0018153997976781942,
+        "one_minus_beta1": 0.015982399575739353,
+        "beta2": 0.9,
+        "warmup_factor": 0.05,
+        "weight_decay": 0.05435484951861185,
+        "label_smoothing": 0.2,
+        "dropout_rate": 0.1
+    },
+    {
+        "learning_rate": 0.001329868220562242,
+        "one_minus_beta1": 0.10849784490183723,
+        "beta2": 0.99,
+        "warmup_factor": 0.05,
+        "weight_decay": 0.013415189274868547,
+        "label_smoothing": 0.2,
+        "dropout_rate": 0.1
+    },
+    {
+        "learning_rate": 0.00010054778177688589,
+        "one_minus_beta1": 0.013477097323359031,
+        "beta2": 0.999,
+        "warmup_factor": 0.05,
+        "weight_decay": 0.012638327613865154,
+        "label_smoothing": 0.1,
+        "dropout_rate": 0.1
+    }
+]
