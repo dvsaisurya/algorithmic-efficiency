@@ -182,7 +182,7 @@ def init_optimizer_state(workload: spec.Workload,
     return schedule_fn
 
   # Create optimizer + LR schedule.
-  lr_schedule_fn = jax_cosine_warmup(workload.step_hint * 0.375, hyperparameters)
+  lr_schedule_fn = jax_cosine_warmup(workload.step_hint *0.53571619898, hyperparameters)
   opt_init_fn, opt_update_fn = efficient_caspr_dist_inv(
        lr_schedule_fn,
        b1=1.0 - hyperparameters.one_minus_beta1,
