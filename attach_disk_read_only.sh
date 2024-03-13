@@ -1,12 +1,12 @@
 
 
-gcloud alpha compute tpus tpu-vm attach-disk tpudemoid \
---zone=us-central1-f \
---disk=imagenetdata \
+gcloud alpha compute tpus tpu-vm attach-disk 6tpuv3 \
+--zone=europe-west4-a \
+--disk=criteo2 \
 --mode=read-only
 
  
-sudo mkdir -p /mnt/disks/imagenetdata
+sudo mkdir -p /mnt/disks/criteodata
 
-sudo mount -o discard,defaults /dev/sdb /mnt/disks/imagenetdata
+sudo mount -o discard,defaults /dev/sdb /mnt/disks/criteodata
 
