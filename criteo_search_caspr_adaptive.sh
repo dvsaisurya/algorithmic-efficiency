@@ -22,6 +22,6 @@ python3 submission_runner.py \
     --data_dir=${DATA_DIR} \
     --rng_seed=${RNG_SEED} \
     --num_tuning_trials=5 \
-    --eval_period=1000 \
+    --eval_period=200 \
     --max_global_steps=5714  \
     --overwrite > ${LOG_FILE} 2>&1 &
