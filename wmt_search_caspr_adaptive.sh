@@ -6,7 +6,7 @@ mkdir -p logs
 #used b3 of 0.8 which is fixed throughout the training and runs caspr_adaptive with hparam_1 for 5 times with different seeds.
 EXP_DIR="/home/saisurya/Projects/algorithmic-efficiency/eff_caspr_hm_adaptive"
 EXP_NAME="eff_caspr_hm_adaptive_full_matrix_wmt_search_0"
-SUBMISSION_PATH="prize_qualification_baselines/external_tuning/efficient_caspr_adaptive_full_matrix_dist_inv_target_setting.py"
+SUBMISSION_PATH="prize_qualification_baselines/external_tuning/efficient_caspr_adaptive_full_matrix_dist_inv_target_setting_imagenet_vit.py"
 SEARCH_SPACE_PATH="tuning_search_space_caspr_adaptive_full_matrix_ogbg_0.json"
 WORKLOAD="wmt"
 DATA_DIR="~/data/wmt"
