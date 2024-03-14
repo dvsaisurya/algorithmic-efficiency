@@ -1,13 +1,12 @@
 
-bash venv_setup.sh
 
 source env/bin/activate
 mkdir -p logs
 #used b3 of 0.8 which is fixed throughout the training and runs caspr_adaptive with hparam_1 for 5 times with different seeds.
-EXP_DIR="/home/saisurya/Projects/algorithmic-efficiency/eff_caspr_hm_adaptive"
-EXP_NAME="eff_shampoo_imagenet_vit_search_0"
+EXP_DIR="/home/saisurya/Projects/algorithmic-efficiency/eff_caspr_hm_adaptive/eff_shampoo_imagenet_vit_search"
+EXP_NAME="eff_shampoo_imagenet_vit_search_trial_$1"
 SUBMISSION_PATH="prize_qualification_baselines/external_tuning/efficient_caspr_shampoo_dist_inv_target_setting_imagenet_vit.py"
-SEARCH_SPACE_PATH="tuning_search_space_caspr_adaptive_full_matrix_imagenet2_0.json"
+SEARCH_SPACE_PATH="tuning_search_space_caspr_adaptive_full_matrix_imagenet_indiv_$1.json"
 WORKLOAD="imagenet_vit"
 DATA_DIR="/mnt/disks/imagenetdata/imagenet/jax"
 RNG_SEED="2"
