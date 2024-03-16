@@ -595,9 +595,9 @@ def score_submission_on_workload(workload: spec.Workload,
       all_metrics.append(metrics)
       logging.info(f'Tuning trial {hi + 1}/{num_tuning_trials}')
       logging.info(f'Hyperparameters: {tuning_search_space[hi]}')
-      logging.info(f'Metrics: {all_metrics[hi]}')
-      logging.info(f'Timing: {all_timings[hi]}')
-      num_evals = len(all_metrics[hi]['eval_results'])
+      logging.info(f'Metrics: {metrics}')
+      logging.info(f'Timing: {timing}')
+      num_evals = len(metrics['eval_results'])
       logging.info(f'Total number of evals: {num_evals}')
       logging.info('=' * 20)
       #use different rng seed for different trial
