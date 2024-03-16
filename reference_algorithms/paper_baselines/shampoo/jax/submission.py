@@ -41,14 +41,16 @@ def init_optimizer_state(workload: spec.Workload,
     return schedule_fn
 
   # Create optimizer + LR schedule.
-  lr_schedule_fn = jax_cosine_warmup(workload.step_hint, hyperparameters)
+  lr_schedule_fn = jax_cosine_warmup(0.375*workload.step_hint, hyperparameters)
   opt_init_fn, opt_update_fn = distributed_shampoo(
       learning_rate=lr_schedule_fn,
       beta1=1.0 - hyperparameters.one_minus_beta1,
       beta2=hyperparameters.beta2,
       weight_decay=hyperparameters.weight_decay,
       batch_axis_name='batch',
-      eigh=False)
+      eigh=False,
+      best_effort_memory_usage_reduction=False,
+      skip_preconditioning_rank_lt=2)
   params_zeros_like = jax.tree_map(lambda s: jnp.zeros(s.shape_tuple),
                                    workload.param_shapes)
   optimizer_state = opt_init_fn(params_zeros_like)
