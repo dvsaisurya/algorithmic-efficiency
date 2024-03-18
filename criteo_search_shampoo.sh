@@ -7,7 +7,7 @@ mkdir -p logs
 EXP_DIR="/home/saisurya/Projects/algorithmic-efficiency/eff_caspr_hm_adaptive"
 EXP_NAME="eff_shampoo_criteo_search_0"
 SUBMISSION_PATH="prize_qualification_baselines/external_tuning/efficient_caspr_shampoo_dist_inv_target_setting_criteo.py"
-SEARCH_SPACE_PATH="tuning_search_space_caspr_adaptive_full_matrix_imagenet2_0.json"
+SEARCH_SPACE_PATH="tuning_search_space_caspr_adaptive_full_matrix_imagenet3_0.json"
 WORKLOAD="criteo1tb"
 DATA_DIR="/mnt/disks/criteodata/criteodata/criteo1tb"
 RNG_SEED="2"
