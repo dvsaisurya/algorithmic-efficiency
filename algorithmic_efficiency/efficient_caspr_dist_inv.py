@@ -136,7 +136,7 @@ def update_stats(L,R,grad,block_size,b2):
         #  L, R = s.L, s.R
         #pad the gradient to be a multiple of block_size
         mgd_shape = get_merged_shape(grad.shape)
-        if len(mgd_shape)<=1 or sum([ dim>20000 for dim in grad.shape]):
+        if len(mgd_shape)<=1 or sum([ dim>5000 for dim in grad.shape]):
                 return ShampooLRPair(L,R)
         print(mgd_shape)
         grad = grad.reshape(mgd_shape)
@@ -157,29 +157,49 @@ def update_stats(L,R,grad,block_size,b2):
 
 
 
-def eigh_inverse(stat,exponent=4,epsilon=1e-6,relative_epsilon=True):
+def eigh_inverse(stat,padding,exponent=4,epsilon=1e-6,relative_epsilon=True):
     # _,max_ev = power_iteration(stat)
     # max_ev = jnp.linalg.norm(stat,ord=1)
-    max_ev = jnp.trace(stat)/stat.shape[0]
+    # max_ev = jnp.trace(stat)/stat.shape[0]
+    ix = (jnp.arange(stat.shape[0])<padding)
+    stat = (stat*ix[:,jnp.newaxis])*ix[jnp.newaxis,:]
+    identity = jnp.array((np.eye(stat.shape[0])*ix[:,np.newaxis])*ix[np.newaxis,:],dtype=stat.dtype)
+    scale = (1e-30+jnp.trace(stat)/padding)
+    stat = stat/scale
+
+    _,max_ev = power_iteration(stat)
+
+
     if relative_epsilon:
-        epsilon = jnp.maximum(epsilon*max_ev,1e-16)
-    reg_stat = stat+jnp.eye(stat.shape[0])*epsilon
-    # reg_stat = stat
+        epsilon = jnp.maximum(epsilon*max_ev,1e-20)
+    reg_stat = stat+identity*epsilon
     eigvals,eigvecs = jnp.linalg.eigh(reg_stat)
-    eigvals = jnp.maximum(eigvals,epsilon)
-    inv_eigvals = jnp.power(eigvals,-1./exponent)
+
     mm = functools.partial(jnp.matmul,precision=lax.Precision.HIGHEST)
-    error = jnp.max(jnp.abs(mm(eigvecs,(eigvals[:,jnp.newaxis]*eigvecs.T)) - reg_stat))/(max_ev+epsilon)
-    return mm(eigvecs,(inv_eigvals[:,jnp.newaxis]*eigvecs.T)),error
+    # eigvals = jnp.einsum("ij,ij->j",mm(reg_stat,eigvecs),eigvecs,precision=lax.Precision.HIGHEST)
+    # jax.debug.print("ratio positive eigvals: {x}",x=jnp.sum(eigvals>0)/eigvals.shape[0])
+    # eigvals = jnp.flip(ix) * eigvals
+    inv_eigvals = (jnp.maximum(eigvals, epsilon)**(-1./exponent))
+    # eigvals = jnp.maximum(eigvals,epsilon)
+    #bottom most eigvals with s
+
+    inv_pth_reg_stat = mm(mm(eigvecs,jnp.diag(inv_eigvals)),eigvecs.T)
+    # inv_pth_reg_stat = mm(eigvecs,jnp.diag(inv_eigvals
+    # inv_pth_reg_stat = mm(eigvecs,(inv_eigvals[:,jnp.newaxis]*eigvecs.T))
+    inv_pth_reg_stat = (inv_pth_reg_stat*ix[:,jnp.newaxis])*ix[jnp.newaxis,:]
+    error = jnp.max(jnp.abs(mat_power(inv_pth_reg_stat,p=exponent)@reg_stat - identity))
+    # error = 1e-7
+    return inv_pth_reg_stat*(scale**(-1/exponent)), error
 
 
-def coupled_newton_inverse(stat,exponent=4,epsilon=1e-6,relative_epsilon=True):
-    trace = (jnp.trace(stat)/stat.shape[0]+1e-30)
-    stat = stat/trace
+def coupled_newton_inverse(stat,padding,exponent=4,epsilon=1e-6,relative_epsilon=True):
+    scale = (jnp.trace(stat)/stat.shape[0]+1e-30)
+    stat = stat/scale
     inv_pth_root,metrics = matrix_inverse_pth_root(stat,exponent,ridge_epsilon=epsilon,error_tolerance=1e-6,
-                            relative_matrix_epsilon=relative_epsilon)
+                            relative_matrix_epsilon=relative_epsilon,padding_start=padding)
     error = metrics.inverse_pth_root_errors
-    return inv_pth_root*(trace**(-1/exponent)),error
+
+    return inv_pth_root*(scale**(-1/exponent)),error
 
 def cholesky_inverse(stat,exponent=4,epsilon=1e-6,relative_epsilon=True):
         #exponent is not going to be used.
@@ -207,6 +227,13 @@ def batch_stats(x, num_devices):
         b = int(n / num_devices)
         return x.reshape(num_devices,b,x.shape[-2],x.shape[-1])
 
+def batch_paddings(x, num_devices):
+    """Batch `x` so that so that leading axis is num_devices."""
+    n = len(x)
+    b = int(n / num_devices)
+    return x.reshape(num_devices,b,1)
+
+
 
 def unbatch_stats(x):
         return x.reshape(-1,x.shape[-2],x.shape[-1])
@@ -217,13 +244,13 @@ def unbatch_errors(x):
 
 
 
-def get_inverses(stats,preconds,exponent,precondition,epsilon,
+def get_inverses(stats,preconds,paddings,exponent,precondition,epsilon,
                                      block_size,relative_epsilon,inverse_type,error_tolerance,batch_axis_name=None):
-        def precondition_false_fn(stats,preconds):
+        def precondition_false_fn(stats,preconds,paddings):
                 return preconds
 
 
-        def precondition_true_fn(stats,preconds):
+        def precondition_true_fn(stats,preconds,paddings):
                 if inverse_type=='eigh':
                         inverse_fn = eigh_inverse
                 elif inverse_type=='cholesky':
@@ -239,6 +266,7 @@ def get_inverses(stats,preconds,exponent,precondition,epsilon,
                 old_preconds = preconds
                 g = stats.shape[0]
                 stats_flat = stats
+                paddings_flat = paddings
                 if batch_axis_name:
                         num_devices = lax.psum(1, batch_axis_name)
                 else:
@@ -249,13 +277,16 @@ def get_inverses(stats,preconds,exponent,precondition,epsilon,
                         # Pad statistics and exponents to next multiple of num_devices.
                         to_pad = (-num_statistics) % num_devices
                         pad_stats = jnp.zeros((to_pad,block_size,block_size))
+                        pad_paddings = jnp.ones((to_pad,1))*block_size
                         pad_stats = pad_stats.at[:].set(jnp.eye(block_size, dtype=stats.dtype))
                         stats_flat = jnp.concatenate([stats_flat, pad_stats], axis=0)
+                        paddings_flat = jnp.concatenate([paddings_flat, pad_paddings], axis=0)
                         stats_flat_batched = batch_stats(stats_flat, num_devices)
+                        paddings_flat_batched = batch_paddings(paddings_flat, num_devices)
                         current_replica = lax.axis_index(batch_axis_name)
                         _matrix_inverse_pth_root_vmap = jax.vmap(functools.partial(inverse_fn,exponent=exponent,epsilon=epsilon,relative_epsilon=relative_epsilon))
                         preconds_flat_batched, errors_flat_batched = _matrix_inverse_pth_root_vmap(
-                                stats_flat_batched[current_replica]
+                                stats_flat_batched[current_replica], paddings_flat_batched[current_replica]
                         )
                         preconds_flat_batched = jax.lax.all_gather(preconds_flat_batched, batch_axis_name)
                         print('to_pad', to_pad, 'errors_flat_batched',errors_flat_batched.shape,'preconds_flat_batched',preconds_flat_batched.shape)
@@ -276,7 +307,7 @@ def get_inverses(stats,preconds,exponent,precondition,epsilon,
                 preconds = jnp.where(errors>error_tolerance,old_preconds,preconds)
                 # print('preconds',preconds.shape)
                 return preconds
-        return jax.lax.cond(precondition,precondition_true_fn,precondition_false_fn,stats,preconds)
+        return jax.lax.cond(precondition,precondition_true_fn,precondition_false_fn,stats,preconds,paddings)
 
 
 
@@ -293,7 +324,7 @@ def split_array(arr, sizes):
 
         return split_arrays
 
-def update_preconds_model(stats,preconds,mu,
+def update_preconds_model(stats,preconds,paddings,mu,
                                         exponent,
                                         precondition,
                                         matrix_epsilon,
@@ -302,22 +333,29 @@ def update_preconds_model(stats,preconds,mu,
                                         inverse_type,
                                         error_tolerance,
                                         batch_axis_name):
+
+
         stats_flat,tree_def = jax.tree_util.tree_flatten(stats)
+        paddings_flat,_ = jax.tree_util.tree_flatten(paddings)
         preconds_flat,tree_def = jax.tree_util.tree_flatten(preconds)
         #   assert not optax.MaskedNode() in stats_flat
         orig_shapes = []
         new_preconds_flat = []
         new_stats_flat = []
-        for precond_flat,stat_flat in zip(preconds_flat,stats_flat):
+        new_paddings_flat = []
+        for precond_flat,stat_flat,padding_flat in zip(preconds_flat,stats_flat,paddings_flat):
                 orig_shapes.append(precond_flat.shape)
                 new_preconds_flat.append(precond_flat.reshape(-1,block_size,block_size))
                 new_stats_flat.append(stat_flat.reshape(-1,block_size,block_size))
+                new_paddings_flat.append(padding_flat.reshape(-1,1))
         preconds_flat = new_preconds_flat
         stats_flat = new_stats_flat
+        paddings_flat = new_paddings_flat
         print([precond.shape for precond in preconds_flat])
         preconds_flat = jnp.concatenate(preconds_flat,axis=0)
         stats_flat = jnp.concatenate(stats_flat,axis=0)
-        preconds_flat = get_inverses(stats_flat,preconds_flat,exponent,precondition,matrix_epsilon,
+        paddings_flat = jnp.concatenate(paddings_flat,axis=0)
+        preconds_flat = get_inverses(stats_flat,preconds_flat,paddings_flat,exponent,precondition,matrix_epsilon,
                                         block_size,relative_epsilon,inverse_type,error_tolerance,batch_axis_name)
         #unwrapping preconds_flat
         split_sizes = ([ orig_shape[0]*orig_shape[1] for orig_shape in orig_shapes ])
@@ -334,9 +372,9 @@ def update_preconds_model(stats,preconds,mu,
         new_preconds = jax.tree_util.tree_unflatten(tree_def,preconds_flat)
         new_preconds = jax.lax.cond(precondition,lambda :
                                 jax.tree_util.tree_map(zeroing_preconds,
-                                                                                new_preconds,mu,
-                                                                                is_leaf=lambda x: type(x).__name__=='ShampooLRPair'),
-                                lambda : new_preconds)
+                                                        new_preconds,mu,
+                                                        is_leaf=lambda x: type(x).__name__=='ShampooLRPair'),
+                                                        lambda : new_preconds)
         print(new_preconds)
         return new_preconds
 
@@ -345,7 +383,7 @@ def zeroing_preconds(precond,momentum):
         precond_L = precond.L
         precond_R = precond.R
         mgd_shape = get_merged_shape(momentum.shape)
-        if len(mgd_shape)<=1 or sum([ dim>20000 for dim in momentum.shape]):
+        if len(mgd_shape)<=1 or sum([ dim>5000 for dim in momentum.shape]):
                 return precond
         #   if precond_L is optax.MaskedNode():
         #    return ShampooLRPair(L=precond_L,R=precond_R)
@@ -364,7 +402,7 @@ def zeroing_preconds(precond,momentum):
 
 def caspr_update_fn(precond,momentum,adam_update,block_size,caspr_p=2,global_grafting=False):
         #TODO: check whether the final momentum_reshaped retain the zeros.
-        if len(adam_update.shape)==1 or sum([ dim>20000 for dim in adam_update.shape]):
+        if len(adam_update.shape)==1 or sum([ dim>5000 for dim in adam_update.shape]):
                 return adam_update
         orig_shape=momentum.shape
         mgd_shape = get_merged_shape(orig_shape)
@@ -395,12 +433,34 @@ def caspr_update_fn(precond,momentum,adam_update,block_size,caspr_p=2,global_gra
         momentum_reshaped = momentum_reshaped[:mgd_shape[0],:mgd_shape[1]].reshape(orig_shape)
         # jax.debug.print('effect of padding: {x} ',
         #                 x=jnp.linalg.norm(momentum_reshaped[mgd_shape[0]:,:mgd_shape[1]]) if mgd_shape[0]<momentum_reshaped.shape[0] else 0.0)
-        
-        momentum_reshaped = momentum_reshaped/jnp.linalg.norm(momentum_reshaped.reshape(-1)) * jnp.linalg.norm(adam_update.reshape(-1))
+
+        momentum_reshaped = momentum_reshaped/(1e-30+jnp.linalg.norm(momentum_reshaped.reshape(-1))) * jnp.linalg.norm(adam_update.reshape(-1))
 
 
         return momentum_reshaped
 
+def get_paddings(s,G,block_size):
+    L,R = s.L,s.R
+    mgd_shape = get_merged_shape(G.shape)
+    if len(mgd_shape)<=1 or sum([ dim>20000 for dim in G.shape]):
+            return optax.MaskedNode()
+    print(mgd_shape)
+    blkd_shape = get_blocked_shape(mgd_shape,block_size)
+    g1,g2,_,_ = blkd_shape
+    print(mgd_shape, blkd_shape)
+    padding_size_L = optax.MaskedNode()
+    padding_size_R = optax.MaskedNode()
+    if type(s.L).__name__!='MaskedNode':
+        padding_size_L = np.ones((g1,g2),dtype=np.int32)*block_size
+        if mgd_shape[0]%block_size!=0:
+            padding_size_L[-1,:] = mgd_shape[0]%block_size
+    if type(s.R).__name__!='MaskedNode':
+        padding_size_R = np.ones((g1,g2),dtype=np.int32)*block_size
+        if mgd_shape[1]%block_size!=0:
+            padding_size_R[:,-1] = mgd_shape[1]%block_size
+
+    #transpose the grid dimensions to the front
+    return ShampooLRPair(L=padding_size_L,R=padding_size_R)
 
 
 
@@ -459,15 +519,26 @@ def scale_by_caspr(
                         lambda t: jnp.zeros_like(t, dtype=mu_dtype), params)
                 nu = jax.tree_util.tree_map(jnp.zeros_like, params)  # Second moment
 
+                def get_padded_matrix(padding_start):
+                    ix = (jnp.arange(block_size)<padding_start)
+                    return (jnp.eye(block_size)*ix[jnp.newaxis,:])*ix[:,jnp.newaxis]
+
+                get_padded_matrix_vmap = jax.vmap(get_padded_matrix,in_axes=0)
 
                 def stat_and_precond_init(param,state_type='stats'):
                         mgd_shape = get_merged_shape(param.shape)
-                        if len(param.shape) > 1 and not sum([dim>20000 for dim in param.shape]):
+                        if len(param.shape) > 1 and not sum([dim>5000 for dim in param.shape]):
                                 blkd_shape = get_blocked_shape(mgd_shape,block_size)
                                 st = jnp.zeros(blkd_shape)
+                                paddings = get_paddings(ShampooLRPair(st,st), param, block_size)
+                                st_L = get_padded_matrix_vmap(paddings.L.reshape(-1,1))
+                                st_R = get_padded_matrix_vmap(paddings.R.reshape(-1,1))
+                                st_L = st_L.reshape((blkd_shape[0],blkd_shape[1],block_size,block_size))
+                                st_R = st_R.reshape((blkd_shape[0],blkd_shape[1],block_size,block_size))
                                 coeff = matrix_epsilon if state_type=='stats' else 1.0
-                                st = st.at[:,:].set(coeff*jnp.eye(block_size))
-                                return ShampooLRPair(L=st,R=jnp.copy(st))
+                                st_L = st_L*coeff
+                                st_R = st_R*coeff
+                                return ShampooLRPair(L=st_L,R=st_R)
                         else:
                         #  blkd_shape = (1,)
                                 return ShampooLRPair(L=optax.MaskedNode(),R=optax.MaskedNode())
@@ -492,7 +563,8 @@ def scale_by_caspr(
                     lambda s,u: update_stats(s.L,s.R,u,block_size,b2),
                     state.stats,updates,is_leaf=lambda x: type(x).__name__=='ShampooLRPair')
                 exponent = exponent_override if exponent_override !=0 else (4 if caspr_p==2 or caspr_p==-1 else 2)
-                preconds = update_preconds_model(stats,state.preconds,mu,
+                stats_paddings = jax.tree_util.tree_map(lambda s,u: get_paddings(s,u,block_size), state.stats,updates,is_leaf=lambda x: type(x).__name__=='ShampooLRPair')
+                preconds = update_preconds_model(stats,state.preconds,stats_paddings,mu,
                                                                                 exponent,
                                                                                 count_inc%preconditioning_compute_steps==0,
                                                                                 matrix_epsilon,
