@@ -1,12 +1,12 @@
 
 
-gcloud alpha compute tpus tpu-vm attach-disk 6tpuv3 \
---zone=europe-west4-a \
---disk=criteo2 \
+gcloud alpha compute tpus tpu-vm attach-disk 1tpuv2 \
+--zone=us-central1-f \
+--disk=librispeech \
 --mode=read-only
 
  
-sudo mkdir -p /mnt/disks/criteodata
+sudo mkdir -p /mnt/disks/librispeech
 
-sudo mount -o discard,defaults /dev/sdb /mnt/disks/criteodata
+sudo mount -o discard,defaults /dev/sdb /mnt/disks/librispeech
 
