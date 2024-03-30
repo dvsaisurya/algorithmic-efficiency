@@ -1,3 +1,3 @@
 
 bash venv_setup.sh
-bash librispeech_graft_caspr_adaptive.sh 2
+bash librispeech_graft_caspr_adaptive.sh 1

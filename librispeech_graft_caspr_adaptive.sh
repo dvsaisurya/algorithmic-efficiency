@@ -9,6 +9,7 @@ SUBMISSION_PATH="prize_qualification_baselines/external_tuning/efficient_caspr_a
 SEARCH_SPACE_PATH="tuning_search_space_nadamw_imagenet_$1.json"
 WORKLOAD="librispeech_conformer"
 DATA_DIR="/mnt/disks/librispeech/librispeech"
+VOCAB_PATH="/mnt/disks/librispeech/librispeech/spm_model.vocab"
 RNG_SEED="2"
 LOG_FILE="logs/${EXP_NAME}"
 python3 submission_runner.py \
@@ -23,4 +24,5 @@ python3 submission_runner.py \
     --num_tuning_trials=1 \
     --eval_period=1000 \
     --max_global_steps=42858  \
+    --librispeech_tokenizer_vocab_path=${VOCAB_PATH} \
     --overwrite > ${LOG_FILE} 2>&1 
