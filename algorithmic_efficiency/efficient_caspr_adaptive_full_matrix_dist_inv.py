@@ -199,7 +199,7 @@ def update_stats(L,R,grad,block_size,b2,precond_type="all",log_metrics=False):
     # if type(R).__name__!='MaskedNode':
     #     jax.debug.print("R:{R}:",R=jnp.sum(jnp.sum(R,axis=-1)!=0))
     mgd_shape = get_merged_shape(grad.shape)
-    if len(mgd_shape)<=1 or sum([ dim>5000 for dim in grad.shape]):
+    if len(mgd_shape)<=1 or sum([ dim>40000 for dim in grad.shape]):
         return ShampooLRPair(L,R)
     print(mgd_shape)
     grad = grad.reshape(mgd_shape)
@@ -241,7 +241,7 @@ def update_stats(L,R,grad,block_size,b2,precond_type="all",log_metrics=False):
 
 def update_lambdas(precond,lambd,prev_stat,grad,block_size,b3,count,exponent,precondition,matrix_epsilon,precond_type="all",log_metrics=False):
     # print('prev lambda', lambd.L.shape)
-    if len(grad.shape)<=1 or sum([ dim>5000 for dim in grad.shape]):
+    if len(grad.shape)<=1 or sum([ dim>40000 for dim in grad.shape]):
         return UpdateLambdas(lambd=lambd,
                          lambd_max_ev=ShampooLRPair(L=optax.MaskedNode(),R=optax.MaskedNode()),
                          coeff=ShampooLRPair(L=optax.MaskedNode(),R=optax.MaskedNode()),
@@ -587,7 +587,7 @@ def zeroing_preconds(precond,momentum,block_size=1024,precond_type="all"):
     precond_L = precond.L
     precond_R = precond.R
     mgd_shape = get_merged_shape(momentum.shape)
-    if len(mgd_shape)<=1 or sum([ dim>5000 for dim in momentum.shape]):
+    if len(mgd_shape)<=1 or sum([ dim>40000 for dim in momentum.shape]):
         return precond
     if type(precond).__name__=='ShampooLRPair':
         nonzero_precond_L = (precond_type in ["all","left"])
@@ -609,7 +609,7 @@ def zeroing_preconds(precond,momentum,block_size=1024,precond_type="all"):
 
 def caspr_update_fn(precond,momentum,adam_update,precond_lambd,block_size,caspr_p=2,global_grafting=False,exponent=1,precond_type="all"):
     #TODO: check whether the final momentum_reshaped retain the zeros.
-    if len(adam_update.shape)==1 or sum([ dim>5000 for dim in adam_update.shape]):
+    if len(adam_update.shape)==1 or sum([ dim>40000 for dim in adam_update.shape]):
         return adam_update
     orig_shape=momentum.shape
     mgd_shape = get_merged_shape(orig_shape)
@@ -767,7 +767,7 @@ def scale_by_caspr(
 
         def stat_and_precond_init(param,state_type='stats'):
             mgd_shape = get_merged_shape(param.shape)
-            if len(param.shape) > 1 and not sum([dim>5000 for dim in param.shape]):
+            if len(param.shape) > 1 and not sum([dim>40000 for dim in param.shape]):
                 blkd_shape = get_blocked_shape(mgd_shape,block_size)
                 st = jnp.zeros(blkd_shape)
                 paddings = get_paddings(ShampooLRPair(st,st), param, block_size)
@@ -800,7 +800,7 @@ def scale_by_caspr(
         def lambda_init(param,state_type='stats'):
             mgd_shape = get_merged_shape(param.shape)
             print('param_shape',param.shape)
-            if len(param.shape) >1 and not sum([dim>5000 for dim in param.shape]):
+            if len(param.shape) >1 and not sum([dim>40000 for dim in param.shape]):
                 blkd_shape = get_blocked_shape(mgd_shape,block_size)
                 st = jnp.zeros(blkd_shape)
                 paddings = get_paddings(ShampooLRPair(st,st), param, block_size)
@@ -825,7 +825,7 @@ def scale_by_caspr(
         def training_metrics(param):
             mgd_shape = get_merged_shape(param.shape)
             print('param_shape',param.shape)
-            if len(param.shape) >1 and not sum([dim>5000 for dim in param.shape]):
+            if len(param.shape) >1 and not sum([dim>40000 for dim in param.shape]):
                 l_metrics = TrainingMetrics()
                 r_metrics = TrainingMetrics()
                 if precond_type=="left":

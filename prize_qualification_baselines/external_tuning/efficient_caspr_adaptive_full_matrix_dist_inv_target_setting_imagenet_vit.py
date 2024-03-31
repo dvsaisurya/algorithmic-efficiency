@@ -185,7 +185,7 @@ def init_optimizer_state(workload: spec.Workload,
   del model_state
   del rng
 
-  def jax_cosine_warmup(step_hint: int, hyperparameters):
+  def jax_cosine_warmup(step_hint: int, step_hint2: int, step_hint3: int, hyperparameters):
     # Create learning rate schedule.
     warmup_steps = int(hyperparameters.warmup_factor * step_hint)
     warmup_fn = optax.linear_schedule(
@@ -195,12 +195,17 @@ def init_optimizer_state(workload: spec.Workload,
     cosine_steps = max(step_hint - warmup_steps, 1)
     cosine_fn = optax.cosine_decay_schedule(
         init_value=hyperparameters.learning_rate, decay_steps=cosine_steps)
+    cosine_steps2 = step_hint2-step_hint
+    cosine_steps3 = step_hint3-step_hint2
+    cosine_fn2 = optax.cosine_decay_schedule(init_value=hyperparameters.learning_rate, decay_steps=cosine_steps2)
+    cosine_fn3 = optax.cosine_decay_schedule(init_value=hyperparameters.learning_rate, decay_steps=cosine_steps3)
     schedule_fn = optax.join_schedules(
-        schedules=[warmup_fn, cosine_fn], boundaries=[warmup_steps])
+        schedules=[warmup_fn, cosine_fn, cosine_fn2, cosine_fn3], boundaries=[warmup_steps, step_hint, step_hint2])
     return schedule_fn
 
   # Create optimizer + LR schedule.
-  lr_schedule_fn = jax_cosine_warmup(workload.step_hint *0.53571619898, hyperparameters)
+  lr_schedule_fn = jax_cosine_warmup(workload.step_hint*0.53571619898, workload.step_hint*0.75,
+                                      workload.step_hint , hyperparameters)
   opt_init_fn, opt_update_fn = efficient_caspr_adaptive_full_matrix_dist_inv(
        lr_schedule_fn,
        b1=1.0 - hyperparameters.one_minus_beta1,

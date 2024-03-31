@@ -23,7 +23,7 @@ python3 submission_runner.py \
     --rng_seed=${RNG_SEED} \
     --num_tuning_trials=1 \
     --eval_period=1000 \
-    --max_global_steps=42858  \
+    --max_global_steps=80000  \
     --librispeech_tokenizer_vocab_path=${VOCAB_PATH} \
     --overwrite > ${LOG_FILE} 2>&1 
 
@@ -52,7 +52,7 @@ python3 submission_runner.py \
     --rng_seed=${RNG_SEED} \
     --num_tuning_trials=1 \
     --eval_period=1000 \
-    --max_global_steps=25715  \
+    --max_global_steps=48000  \
     --librispeech_tokenizer_vocab_path=${VOCAB_PATH} \
     --overwrite > ${LOG_FILE} 2>&1 
 
@@ -79,5 +79,5 @@ python3 submission_runner.py \
     --rng_seed=${RNG_SEED} \
     --num_tuning_trials=1 \
     --eval_period=1000 \
-    --max_global_steps=19388  \
+    --max_global_steps=36189  \
     --overwrite > ${LOG_FILE} 2>&1 
