@@ -15,7 +15,7 @@ import math
 from jax import lax
 import numpy as np
 
-from reference_algorithms.paper_baselines.shampoo.jax.distributed_shampoo import matrix_inverse_pth_root, power_iteration
+from reference_algorithms.paper_baselines.shampoo.jax.distributed_shampoo import matrix_inverse_pth_root, power_iteration, mat_power
 
 from flax import struct
 
@@ -374,6 +374,7 @@ def eigh_inverse(stat,padding,exponent=4,epsilon=1e-6,relative_epsilon=True):
     # jax.debug.print("ratio positive eigvals: {x}",x=jnp.sum(eigvals>0)/eigvals.shape[0])
     # eigvals = jnp.flip(ix) * eigvals
     inv_eigvals = (jnp.maximum(eigvals, epsilon)**(-1./exponent))
+    # inv_eigvals = inv_eigvals*jnp.flip(ix)
     # eigvals = jnp.maximum(eigvals,epsilon)
     #bottom most eigvals with s
     

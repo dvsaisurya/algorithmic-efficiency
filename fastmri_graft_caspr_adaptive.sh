@@ -3,12 +3,12 @@
 source env/bin/activate
 mkdir -p logs
 #used b3 of 0.8 which is fixed throughout the training and runs caspr_adaptive with hparam_1 for 5 times with different seeds.
-EXP_DIR="/home/saisurya/Projects/algorithmic-efficiency/eff_caspr_hm_adaptive/eff_caspr_hm_adaptive_full_matrix_imagenet_resnet_graft_optimized"
-EXP_NAME="eff_caspr_hm_adaptive_full_matrix_imagenet_resnet_graft_trial_optimized_$1"
+EXP_DIR="/home/saisurya/Projects/algorithmic-efficiency/eff_caspr_hm_adaptive/eff_caspr_hm_adaptive_full_matrix_fastmri_graft_optimized"
+EXP_NAME="eff_caspr_hm_adaptive_full_matrix_fastmri_graft_trial_optimized_$1"
 SUBMISSION_PATH="prize_qualification_baselines/external_tuning/efficient_caspr_adaptive_full_matrix_dist_inv_target_setting_imagenet_vit_optimized.py"
 SEARCH_SPACE_PATH="tuning_search_space_nadamw_imagenet_$1.json"
-WORKLOAD="imagenet_resnet"
-DATA_DIR="/mnt/disks/imagenetdata/imagenet/jax"
+WORKLOAD="fastmri"
+DATA_DIR="/mnt/disks/fastmridata/fastmri"
 RNG_SEED="2"
 LOG_FILE="logs/${EXP_NAME}"
 python3 submission_runner.py \
@@ -22,5 +22,5 @@ python3 submission_runner.py \
     --rng_seed=${RNG_SEED} \
     --num_tuning_trials=1 \
     --eval_period=1000 \
-    --max_global_steps=186666  \
+    --max_global_steps=36189  \
     --overwrite > ${LOG_FILE} 2>&1 
