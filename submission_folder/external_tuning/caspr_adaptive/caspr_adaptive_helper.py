@@ -1,3 +1,27 @@
+# coding=utf-8
+# Copyright 2024 Sai Surya Duvvuri.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Implementation of an adaptive version of CASPR, which adapts 
+# matrix D in the axes preconditioner L \otimes D  such that 
+# it approximates full-matrix Adagrad. This is an improved axis preconditioner, 
+# a concept introduced in
+# CASPR - Combining Axes Preconditioners through Kronecker Approximation 
+# https://openreview.net/pdf?id=8j9hz8DVi8 
+
+
+
 import functools
 from typing import Any, Callable, NamedTuple, Optional, Union
 from jax.scipy.linalg import cho_factor, cho_solve
@@ -11,17 +35,12 @@ import numpy as np
 import optax
 import jax.numpy as jnp
 
-# from reference_algorithms.paper_baselines.shampoo.jax.distributed_shampoo import matrix_inverse_pth_root,mat_power,power_iteration
-from distributed_shampoo import matrix_inverse_pth_root,mat_power,power_iteration
+from submission_folder.external_tuning.caspr_adaptive.distributed_shampoo import matrix_inverse_pth_root,mat_power,power_iteration
 
 
-# pylint:disable=no-value-for-parameter
 
 
 ScalarOrSchedule = Union[float, optax.Schedule]
-class TraceState(NamedTuple):
-        """Holds an aggregation of past updates."""
-        trace: optax.Params
 
 
 
@@ -32,8 +51,7 @@ MaskOrFn = Optional[Union[Any, Callable[[optax.Params], Any]]]
 
 
 class ScaleByCasprState(NamedTuple):
-        """State for the Adam algorithm."""
-        count: chex.Array  # shape=(), dtype=jnp.int32.
+        count: chex.Array  
         mu: optax.Updates
         nu: optax.Updates
         stats: optax.Updates
@@ -46,7 +64,6 @@ class CasprLRPair(NamedTuple):
         R: chex.Array
 
 def update_moment(updates, moments, decay, order):
-        """Compute the exponential moving average of the `order`-th moment."""
         w1,w2 = (1-decay) if decay!=1.0 else 1.0, decay
         return jax.tree_util.tree_map(
             lambda g, t: w1 * (g ** order) + w2 * t, updates, moments)
@@ -64,54 +81,15 @@ def _scale_by_learning_rate(learning_rate: ScalarOrSchedule, flip_sign=True):
 
 @functools.partial(jax.jit, inline=True)
 def bias_correction(moment, decay, count):
-        """Performs bias correction. It becomes a no-op as count goes to infinity."""
-        # The conversion to the data type of the moment ensures that bfloat16 remains
-        # bfloat16 in the optimizer state. This conversion has to be done after
-        # `bias_correction_` is calculated as calculating `decay**count` in low
-        # precision can result in it being rounded to 1 and subsequently a
-        # "division by zero" error.
         bias_correction_ = 1 - decay**count
-
-
-        # Perform division in the original precision.
         return jax.tree_util.tree_map(
                 lambda t: t / bias_correction_.astype(t.dtype), moment)
 
 
-def abs_sq(x: chex.Array) -> chex.Array:
-        """Returns the squared norm of a (maybe complex) array.
-
-
-        For real `x`, JAX generates the same HLO from this, `jnp.square(x)`, `x * x`,
-        or `x**2`.
-
-
-        Args:
-        x: a (maybe complex) array.
-
-
-        Returns:
-        The squared norm of `x`.
-        """
-        if not isinstance(x, (np.ndarray, jnp.ndarray)):
-                raise ValueError(f"`abs_sq` accepts only NDarrays, got: {x}.")
-        return (x.conj() * x).real
-
-
 def update_moment_per_elem_norm(updates, moments, decay, order):
-        """Compute the EMA of the `order`-th moment of the element-wise norm."""
-        def orderth_norm(g):
-                if jnp.isrealobj(g):
-                        return g ** order
-                else:
-                        half_order = order / 2
-                        # JAX generates different HLO for int and float `order`
-                        if half_order.is_integer():
-                                half_order = int(half_order)
-                        return abs_sq(g) ** half_order
         w1,w2 = (1-decay) if decay!=1.0 else 1.0, decay
         return jax.tree_util.tree_map(
-                lambda g, t: w1 * orderth_norm(g) + w2 * t, updates, moments)
+                lambda g, t: w1 * g**order + w2 * t, updates, moments)
 
 
 
@@ -451,7 +429,6 @@ def update_preconds_model(stats,preconds,paddings,mu,
                                         inverse_type,
                                         error_tolerance,
                                         batch_axis_name):
-      #TODO: do the following only when precondition is true.
 
         stats_flat,tree_def = jax.tree_util.tree_flatten(stats)
         paddings_flat,_ = jax.tree_util.tree_flatten(paddings)
@@ -476,7 +453,6 @@ def update_preconds_model(stats,preconds,paddings,mu,
         paddings_flat = jnp.concatenate(paddings_flat,axis=0)
         preconds_flat,errors_flat = get_inverses(stats_flat,paddings_flat,exponent,matrix_epsilon,
                                         block_size,relative_epsilon,inverse_type,error_tolerance,batch_axis_name)
-        # jax.debug.print("paddings_flat {x}",x=paddings_flat)
         print("orig_shapes ",orig_shapes)
         #unwrapping preconds_flat
         split_sizes = ([ orig_shape[0]*orig_shape[1] for orig_shape in orig_shapes ])
@@ -488,7 +464,6 @@ def update_preconds_model(stats,preconds,paddings,mu,
         preconds_flat = [ precond_flat[:,:orig_shape[-2],:orig_shape[-1]].reshape(orig_shape) for precond_flat,orig_shape in zip(preconds_flat,orig_shapes)]
         errors = jax.tree_util.tree_unflatten(tree_def,errors_flat)
         new_preconds = jax.tree_util.tree_unflatten(tree_def,preconds_flat)
-        # jax.debug.print("errors {errors}",errors=errors)
         new_preconds = jax.tree_util.tree_map(lambda p,op,e: jnp.where(e[:,:,jnp.newaxis,jnp.newaxis]>error_tolerance,op,p),new_preconds,preconds,errors)
 
         return new_preconds
@@ -694,7 +669,6 @@ def scale_by_caspr(
 
 
         def update_fn(updates, state, params=None):
-                #TODO: start preconditioning after start_preconditioning_step
                 del params
                 mu = update_moment(updates, state.mu, b1, 1)
                 nu = update_moment_per_elem_norm(updates, state.nu, b2, 2)
@@ -705,13 +679,9 @@ def scale_by_caspr(
                     lambda s,u,prevl,precondl: update_stats(s.L,s.R,prevl,precondl.L,u,block_size,b2,
                      ((jnp.maximum(count_inc-1,1))%preconditioning_compute_steps==0),matrix_epsilon),
                     state.stats,updates,state.prev_stats,state.preconds,is_leaf=lambda x: type(x).__name__=='CasprLRPair')
-                # print('stat_updates ',stat_updates)
                 stats = jax.tree_util.tree_map(lambda x: x.stat, stat_updates,is_leaf=lambda x: type(x).__name__=='UpdateStats')
-                self_tr = lambda x: jnp.einsum("ijkk->",x)/(x.shape[0]*x.shape[1]*x.shape[2])
 
                 prev_stats = jax.tree_util.tree_map(lambda x: x.prev_L, stat_updates,is_leaf=lambda x: type(x).__name__=='UpdateStats')
-                coeffs = jax.tree_util.tree_map(lambda x: x.coeff, stat_updates,is_leaf=lambda x: type(x).__name__=='UpdateStats')
-                # jax.debug.print("stats trace {x} \ncoeffs {y}",x = jax.tree_util.tree_map(self_tr,stats),y=coeffs)
 
                 exponent = exponent_override if exponent_override !=0 else 2
                 stats_paddings = jax.tree_util.tree_map(lambda s,u: get_paddings(s,u,block_size), state.stats,updates,is_leaf=lambda x: type(x).__name__=='CasprLRPair')
@@ -724,15 +694,7 @@ def scale_by_caspr(
                                                                                 relative_epsilon,
                                                                                 inverse_type,
                                                                                 error_tolerance,batch_axis_name),lambda: state.preconds)
-                def print_fn(m,stat_type='mu'):
-                        print_fn = lambda m: jax.debug.print(
-                            "step {st} " + stat_type + " l2 {x}, " + stat_type + " l0 1e-5 {y}, " + stat_type + " l0 1e-7 {z}, " + stat_type + " l0 1e-10 {u}",
-                            st=count_inc, x=jnp.linalg.norm(m.reshape(-1)), y=jnp.sum(jnp.abs(m) > 1e-5),
-                            z=jnp.sum(jnp.abs(m) > 1e-7), u=jnp.sum(jnp.abs(m) > 1e-10)
-                            )
-                if verbose:
-                        jax.tree_util.tree_map(functools.partial(print_fn,stat_type='mu'), mu)
-                        jax.tree_util.tree_map(functools.partial(print_fn,stat_type='nu'), nu)
+                
                 nu_hat = bias_correction(nu, b2, count_inc)
                 def nadam_fn(m,v,g):
                         return  m / (jnp.sqrt(v + eps_root) + eps)
@@ -749,13 +711,6 @@ def scale_by_caspr(
                     is_leaf=lambda x: type(x).__name__=='CasprLRPair')
 
                 updates = jax.lax.cond(count_inc>start_preconditioning_step, lambda : caspr_updates, lambda : adam_updates)
-            #  jax.debug.print("preconds shape {x}",x=jax.tree_util.tree_flatten(preconds)[0][2].shape)
-                if verbose:
-                        jax.tree_util.tree_map(functools.partial(print_fn,stat_type='updates'), updates)
-                        jax.tree_util.tree_map(functools.partial(print_fn,stat_type='caspr_updates'), caspr_updates)
-                        jax.tree_util.tree_map(functools.partial(print_fn,stat_type='adam_updates'), adam_updates)
-                        jax.tree_util.tree_map(functools.partial(print_fn,stat_type='stats'), stats)
-                        jax.tree_util.tree_map(functools.partial(print_fn,stat_type='preconds'), preconds)
                 return updates, ScaleByCasprState(count=count_inc, mu=mu, nu=nu, stats=stats, preconds=preconds, prev_stats=prev_stats)
 
 
@@ -786,45 +741,6 @@ def efficient_caspr_adaptive_full_matrix_dist_inv_optimized(
         global_grafting: bool = False,
         batch_axis_name: Any = None
         ) -> optax.GradientTransformation:
-        """Adam with weight decay regularization.
-
-
-        AdamW uses weight decay to regularize learning towards small weights, as
-        this leads to better generalization. In SGD you can also use L2 regularization
-        to implement this as an additive loss term, however L2 regularization
-        does not behave as intended for adaptive gradient algorithms such as Adam.
-
-
-        References:
-            Loshchilov et al, 2019: https://arxiv.org/abs/1711.05101
-
-
-        Args:
-            learning_rate: A fixed global scaling factor.
-            b1: Exponential decay rate to track the first moment of past gradients.
-            b2: Exponential decay rate to track the second moment of past gradients.
-            eps: A small constant applied to denominator outside of the square root
-                (as in the Adam paper) to avoid dividing by zero when rescaling.
-            eps_root: A small constant applied to denominator inside the square root (as
-                in RMSProp), to avoid dividing by zero when rescaling. This is needed for
-                instance when computing (meta-)gradients through Adam.
-            mu_dtype: Optional `dtype` to be used for the first order accumulator; if
-                `None` then the `dtype` is inferred from `params` and `updates`.
-            weight_decay: Strength of the weight decay regularization. Note that this
-                weight decay is multiplied with the learning rate. This is consistent
-                with other frameworks such as PyTorch, but different from
-                (Loshchilov et al, 2019) where the weight decay is only multiplied with
-                the "schedule multiplier", but not the base learning rate.
-            mask: A tree with same structure as (or a prefix of) the params PyTree,
-                or a Callable that returns such a pytree given the params/updates.
-                The leaves should be booleans, `True` for leaves/subtrees you want to
-                apply the weight decay to, and `False` for those you want to skip. Note
-                that the Adam gradient transformations are applied to all parameters.
-
-
-        Returns:
-            The corresponding `GradientTransformation`.
-        """
         # Using jax.debug.print to print the parameters
         jax.debug.print("""
         learning_rate: {learning_rate},

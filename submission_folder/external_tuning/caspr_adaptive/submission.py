@@ -1,4 +1,5 @@
-"""Submission file for an NAdamW optimizer with warmup+cosine LR in Jax."""
+
+
 
 import functools
 
@@ -23,7 +24,7 @@ import jax.numpy as jnp
 import optax
 
 from algorithmic_efficiency import spec
-from caspr_adaptive import efficient_caspr_adaptive_full_matrix_dist_inv_optimized
+from submission_folder.external_tuning.caspr_adaptive.caspr_adaptive_helper import efficient_caspr_adaptive_full_matrix_dist_inv_optimized
 
 from flax import struct
 
