@@ -1,10 +1,11 @@
 
+mkdir -p logs
 SETUP_LOG_FILE="logs/setup_log"
 
 bash venv_setup.sh >> ${SETUP_LOG_FILE} 2>&1 
 
 source env/bin/activate
-mkdir -p logs
+
 #used b3 of 0.8 which is fixed throughout the training and runs caspr_adaptive with hparam_1 for 5 times with different seeds.
 EXP_DIR="/home/saisurya/Projects/algorithmic-efficiency/eff_caspr_hm_adaptive_submission"
 EXP_NAME="eff_submission_caspr_hm_adaptive_full_matrix_wmt_search_$1"
