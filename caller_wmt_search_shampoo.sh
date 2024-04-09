@@ -1,0 +1,1 @@
+bash wmt_search_shampoo.sh 0

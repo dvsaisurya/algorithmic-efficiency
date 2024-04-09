@@ -13,12 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Implementation of an adaptive version of CASPR, which adapts 
-# matrix D in the axes preconditioner L \otimes D  such that 
-# it approximates full-matrix Adagrad. This is an improved axis preconditioner, 
+# Implementation of an adaptive version of CASPR, which adapts
+# matrix D in the axes preconditioner L \otimes D  such that
+# it approximates full-matrix Adagrad. This is an improved axis preconditioner,
 # a concept introduced in
-# CASPR - Combining Axes Preconditioners through Kronecker Approximation 
-# https://openreview.net/pdf?id=8j9hz8DVi8 
+# CASPR - Combining Axes Preconditioners through Kronecker Approximation
+# https://openreview.net/pdf?id=8j9hz8DVi8
 
 
 
@@ -35,7 +35,7 @@ import numpy as np
 import optax
 import jax.numpy as jnp
 
-from submission_folder.external_tuning.caspr_adaptive.distributed_shampoo import matrix_inverse_pth_root,mat_power,power_iteration
+# from submission_folder.external_tuning.caspr_adaptive.distributed_shampoo import matrix_inverse_pth_root,mat_power,power_iteration
 
 
 
@@ -51,7 +51,7 @@ MaskOrFn = Optional[Union[Any, Callable[[optax.Params], Any]]]
 
 
 class ScaleByCasprState(NamedTuple):
-        count: chex.Array  
+        count: chex.Array
         mu: optax.Updates
         nu: optax.Updates
         stats: optax.Updates
@@ -148,8 +148,8 @@ class UpdateStats(NamedTuple):
     prev_L: Any
     coeff: Any
 
-def update_stats(L,R,prev_L,precond_L,grad,block_size,b2,fresh_preconds,matrix_epsilon):
-    print("L R prev_L precond_L grad", L, R, prev_L, precond_L, grad)
+def update_stats(L,R,prev_L,precond_L,grad,block_size,b2,fresh_preconds,matrix_epsilon,shampoo):
+    print("L R precond_L grad", L, R, precond_L, grad)
     #TODO: update statistics once every few steps
     #  L, R = s.L, s.R
 
@@ -179,20 +179,26 @@ def update_stats(L,R,prev_L,precond_L,grad,block_size,b2,fresh_preconds,matrix_e
       g1,g2,_,_ = blkd_shape
       assert g1==1 and g2==1
       # jax.debug.print("tr precond_L.precondL.L {x}",x = jnp.trace(precond_L@precond_L@L)/L.shape[-1])
-
-      coeff = jax.lax.cond(fresh_preconds,
-              lambda: jnp.clip(tr(precond_L,
-                                  regularized_stat(prev_L,
-                                                   grad,
-                                                   block_size,
-                                                   matrix_epsilon)@precond_L)[:,:,jnp.newaxis,jnp.newaxis],0,None)/mgd_shape[0],
-              lambda: jnp.ones((g1,g2,1,1)))
-      # jax.debug.print((precond_L))
-      prev_L = jax.lax.cond(fresh_preconds,lambda: L,lambda: prev_L)
-      L = w1*L + w2*grad@grad.T
-      precond_grad = (grad.T@precond_L)
-      R = w1*coeff*R +  w2*jnp.einsum("ijkl,ijnl->ijkn",precond_grad,precond_grad)/mgd_shape[0]
-      # jax.debug.print("residual {x}",x=jnp.trace((jnp.einsum("ijkl,ijnl->ijkn",precond_grad,precond_grad)/mgd_shape[0])[0,0]))
+      if not shampoo:
+        coeff = jax.lax.cond(fresh_preconds,
+                lambda: jnp.clip(tr(precond_L,
+                                    regularized_stat(prev_L,
+                                                    grad,
+                                                    block_size,
+                                                    matrix_epsilon)@precond_L)[:,:,jnp.newaxis,jnp.newaxis],0,None)/mgd_shape[0],
+                lambda: jnp.ones((g1,g2,1,1)))
+        # jax.debug.print((precond_L))
+        prev_L = jax.lax.cond(fresh_preconds,lambda: L,lambda: prev_L)
+      else:
+        prev_L = optax.MaskedNode()
+        coeff = optax.MaskedNode()
+      if not shampoo:
+        L = w1*L + w2*grad@grad.T
+        precond_grad = (grad.T@precond_L)
+        R = w1*coeff*R +  w2*jnp.einsum("ijkl,ijnl->ijkn",precond_grad,precond_grad)/mgd_shape[0]
+      else:
+        L = w1*L + w2*grad@grad.T
+        R = w1*R + w2*grad.T@grad
 
     if mgd_shape[0]>block_size and mgd_shape[1]<=block_size:
       # L will look as g1,1,block_size,block_size and R will look as g1,1,mgd_shape[1],mgd_shape[1]
@@ -200,65 +206,89 @@ def update_stats(L,R,prev_L,precond_L,grad,block_size,b2,fresh_preconds,matrix_e
       blkd_shape = get_blocked_shape(mgd_shape,block_size)
       g1,g2,_,_ = blkd_shape
       assert g1!=1 and g2==1
-      M = np.zeros((g1,g2))
-      M[-1,:] = mgd_shape[0]%block_size  if mgd_shape[0]%block_size!=0 else block_size
-      M[:-1,:] = block_size
-      coeff = jax.lax.cond(fresh_preconds,
-                                        lambda: jnp.clip(tr(precond_L, regularized_stat(prev_L,
-                                                  grad,
-                                                   block_size,
-                                                   matrix_epsilon)@precond_L)[:,:,jnp.newaxis,jnp.newaxis],0,None)/M[:,:,np.newaxis,np.newaxis],
-                                        lambda: jnp.ones((g1,g2,1,1)))
-      prev_L = jax.lax.cond(fresh_preconds,lambda: L,lambda: prev_L)
+      if not shampoo:
+        M = np.zeros((g1,g2))
+        M[-1,:] = mgd_shape[0]%block_size  if mgd_shape[0]%block_size!=0 else block_size
+        M[:-1,:] = block_size
+        coeff = jax.lax.cond(fresh_preconds,
+                                            lambda: jnp.clip(tr(precond_L, regularized_stat(prev_L,
+                                                    grad,
+                                                    block_size,
+                                                    matrix_epsilon)@precond_L)[:,:,jnp.newaxis,jnp.newaxis],0,None)/M[:,:,np.newaxis,np.newaxis],
+                                            lambda: jnp.ones((g1,g2,1,1)))
+        prev_L = jax.lax.cond(fresh_preconds,lambda: L,lambda: prev_L)
+      else:
+        prev_L = optax.MaskedNode()
+        coeff = optax.MaskedNode()
       grad = jnp.pad(grad,((0,(-mgd_shape[0])%block_size),(0,0)),mode='constant')
       grad = grad.reshape(g1,block_size,g2,mgd_shape[1])
       grad = grad.transpose((0,2,1,3))
-      L = w1*L + w2*jnp.einsum("ijkl,ijnl->ijkn",grad,grad)
-      precond_grad = jnp.einsum("ijkl,ijln->ijnk",precond_L,grad)
-      R = w1*coeff*R + w2*jnp.einsum("ijkl,ijnl->ijkn",precond_grad,precond_grad)/M[:,:,np.newaxis,np.newaxis]
+      if not shampoo:
+        L = w1*L + w2*jnp.einsum("ijkl,ijnl->ijkn",grad,grad)
+        precond_grad = jnp.einsum("ijkl,ijln->ijnk",precond_L,grad)
+        R = w1*coeff*R + w2*jnp.einsum("ijkl,ijnl->ijkn",precond_grad,precond_grad)/M[:,:,np.newaxis,np.newaxis]
+      else:
+        L = w1*L + w2*jnp.einsum("ijkl,ijnl->ijkn",grad,grad)
+        R = w1*R + w2*jnp.einsum("ijlk,ijln->ijkn",grad,grad)
     if mgd_shape[0]<=block_size and mgd_shape[1]>block_size:
       # L will look as 1,g2,mgd_shape[0],mgd_shape[0] and R will look as 1,g2,block_size,block_size
       # grad is padded to the right
       blkd_shape = get_blocked_shape(mgd_shape,block_size)
       g1,g2,_,_ = blkd_shape
       assert g1==1 and g2!=1
-      M = np.zeros((g1,g2))
-      M[-1,:] = mgd_shape[0]%block_size  if mgd_shape[0]%block_size!=0 else block_size
-      M[:-1,:] = block_size
-      coeff = jax.lax.cond(fresh_preconds,
-                                        lambda: jnp.clip(tr(precond_L, regularized_stat(prev_L,
-                                                  grad,
-                                                   block_size,
-                                                   matrix_epsilon)@precond_L)[:,:,jnp.newaxis,jnp.newaxis],0,None)/mgd_shape[0],
-                                        lambda: jnp.ones((g1,g2,1,1)))
-      prev_L = jax.lax.cond(fresh_preconds,lambda: L,lambda: prev_L)
+      if not shampoo:
+        M = np.zeros((g1,g2))
+        M[-1,:] = mgd_shape[0]%block_size  if mgd_shape[0]%block_size!=0 else block_size
+        M[:-1,:] = block_size
+        coeff = jax.lax.cond(fresh_preconds,
+                                            lambda: jnp.clip(tr(precond_L, regularized_stat(prev_L,
+                                                    grad,
+                                                    block_size,
+                                                    matrix_epsilon)@precond_L)[:,:,jnp.newaxis,jnp.newaxis],0,None)/mgd_shape[0],
+                                            lambda: jnp.ones((g1,g2,1,1)))
+        prev_L = jax.lax.cond(fresh_preconds,lambda: L,lambda: prev_L)
+      else:
+        prev_L = optax.MaskedNode()
+        coeff = optax.MaskedNode()
       grad = jnp.pad(grad,((0,0),(0,(-mgd_shape[1])%block_size)),mode='constant')
       grad = grad.reshape(g1,mgd_shape[0],g2,block_size)
       grad = grad.transpose((0,2,1,3))
-      L = w1*L + w2*jnp.einsum("ijkl,ijnl->ijkn",grad,grad)
-      precond_grad = jnp.einsum("ijkl,ijln->ijnk",precond_L,grad)
-      R = w1*coeff*R + w2*jnp.einsum("ijkl,ijnl->ijkn",precond_grad,precond_grad)/mgd_shape[0]
+      if not shampoo:
+        L = w1*L + w2*jnp.einsum("ijkl,ijnl->ijkn",grad,grad)
+        precond_grad = jnp.einsum("ijkl,ijln->ijnk",precond_L,grad)
+        R = w1*coeff*R + w2*jnp.einsum("ijkl,ijnl->ijkn",precond_grad,precond_grad)/mgd_shape[0]
+      else:
+        L = w1*L + w2*jnp.einsum("ijkl,ijnl->ijkn",grad,grad)
+        R = w1*R + w2*jnp.einsum("ijlk,ijln->ijkn",grad,grad)
     if mgd_shape[0]>block_size and mgd_shape[1]>block_size:
       #L and R will look like g1,g2,block_size,block_size
       blkd_shape = get_blocked_shape(mgd_shape,block_size)
       g1,g2,_,_ = blkd_shape
       assert g1!=1 and g2!=1
-      M = np.zeros((g1,g2))
-      M[-1,:] = mgd_shape[0]%block_size  if mgd_shape[0]%block_size!=0 else block_size
-      M[:-1,:] = block_size
-      coeff = jax.lax.cond(fresh_preconds,
-                                        lambda: jnp.clip(tr(precond_L, regularized_stat(prev_L,
-                                                  grad,
-                                                   block_size,
-                                                   matrix_epsilon)@precond_L)[:,:,jnp.newaxis,jnp.newaxis],0,None)/M[:,:,np.newaxis,np.newaxis],
-                                        lambda: jnp.ones((g1,g2,1,1)))
-      prev_L = jax.lax.cond(fresh_preconds,lambda: L,lambda: prev_L)
+      if not shampoo:
+        M = np.zeros((g1,g2))
+        M[-1,:] = mgd_shape[0]%block_size  if mgd_shape[0]%block_size!=0 else block_size
+        M[:-1,:] = block_size
+        coeff = jax.lax.cond(fresh_preconds,
+                                            lambda: jnp.clip(tr(precond_L, regularized_stat(prev_L,
+                                                    grad,
+                                                    block_size,
+                                                    matrix_epsilon)@precond_L)[:,:,jnp.newaxis,jnp.newaxis],0,None)/M[:,:,np.newaxis,np.newaxis],
+                                            lambda: jnp.ones((g1,g2,1,1)))
+        prev_L = jax.lax.cond(fresh_preconds,lambda: L,lambda: prev_L)
+      else:
+        prev_L = optax.MaskedNode()
+        coeff = optax.MaskedNode()
       grad = jnp.pad(grad,((0,(-mgd_shape[0])%block_size),(0,(-mgd_shape[1])%block_size)),mode='constant')
       grad = grad.reshape(g1,mgd_shape[0],g2,block_size)
       grad = grad.transpose((0,2,1,3))
-      L = w1*L + w2*jnp.einsum("ijkl,ijnl->ijkn",grad,grad)
-      precond_grad = jnp.einsum("ijkl,ijln->ijnk",precond_L,grad)
-      R = w1*coeff*R + w2*jnp.einsum("ijkl,ijnl->ijkn",precond_grad,precond_grad)/M[:,:,np.newaxis,np.newaxis]
+      if not shampoo:
+        L = w1*L + w2*jnp.einsum("ijkl,ijnl->ijkn",grad,grad)
+        precond_grad = jnp.einsum("ijkl,ijln->ijnk",precond_L,grad)
+        R = w1*coeff*R + w2*jnp.einsum("ijkl,ijnl->ijkn",precond_grad,precond_grad)/M[:,:,np.newaxis,np.newaxis]
+      else:
+        L = w1*L + w2*jnp.einsum("ijkl,ijnl->ijkn",grad,grad)
+        R = w1*R + w2*jnp.einsum("ijlk,ijln->ijkn",grad,grad)
 
     return UpdateStats(stat=CasprLRPair(L,R),prev_L=prev_L,coeff=coeff)
 
@@ -585,7 +615,8 @@ def scale_by_caspr(
         error_tolerance: float= 1e-2,
         verbose: bool= True,
         global_grafting: bool = False,
-        batch_axis_name: Any = None
+        batch_axis_name: Any = None,
+        shampoo: bool = False
         ) -> optax.GradientTransformation:
         """Rescale updates according to the Adam algorithm.
 
@@ -630,7 +661,7 @@ def scale_by_caspr(
 
                 def stat_and_precond_init(param,state_type='stats'):
                   mgd_shape = get_merged_shape(param.shape)
-                  if len(param.shape) > 1 and not sum([dim>40000 for dim in param.shape]):
+                  if (len(param.shape) > 1 and not sum([dim>40000 for dim in param.shape])):
                       blkd_shape = get_blocked_shape(mgd_shape,block_size)
                       coeff = matrix_epsilon if state_type in ['stats','prev_stats'] else 1.0
                       jax.debug.print(state_type+' {x}',x=coeff)
@@ -653,7 +684,7 @@ def scale_by_caspr(
                         assert blkd_shape[1]==1
                         st_R = jnp.zeros((blkd_shape[0],blkd_shape[1],mgd_shape[1],mgd_shape[1]))
                         st_R = st_R.at[:,:].set(jnp.eye(mgd_shape[1]))
-                      st_R = st_R
+                      st_R = st_R if not shampoo else st_R*coeff
 
                       return CasprLRPair(L=st_L,R=st_R) if state_type in ['stats','preconds'] else st_L
 
@@ -663,7 +694,8 @@ def scale_by_caspr(
 
                 stats = jax.tree_util.tree_map(functools.partial(stat_and_precond_init,state_type='stats'), params)
                 preconds = jax.tree_util.tree_map(functools.partial(stat_and_precond_init,state_type='preconds'), params)
-                prev_stats = jax.tree_util.tree_map(functools.partial(stat_and_precond_init,state_type='prev_stats'), params)
+                prev_stats = (jax.tree_util.tree_map(functools.partial(stat_and_precond_init,state_type='prev_stats'), params) \
+                                if not shampoo else optax.MaskedNode())
 
                 return ScaleByCasprState(count=jnp.zeros([], jnp.int32), mu=mu, nu=nu, stats=stats, preconds=preconds, prev_stats=prev_stats)
 
@@ -675,15 +707,23 @@ def scale_by_caspr(
                 count_inc = state.count+1
                 print(state.stats)
                 print(updates)
-                stat_updates = jax.tree_util.tree_map(
-                    lambda s,u,prevl,precondl: update_stats(s.L,s.R,prevl,precondl.L,u,block_size,b2,
-                     ((jnp.maximum(count_inc-1,1))%preconditioning_compute_steps==0),matrix_epsilon),
-                    state.stats,updates,state.prev_stats,state.preconds,is_leaf=lambda x: type(x).__name__=='CasprLRPair')
+                if not shampoo:
+                  stat_updates = jax.tree_util.tree_map(
+                      lambda s,u,prevl,precondl: update_stats(s.L,s.R,prevl,precondl.L,u,block_size,b2,
+                      ((jnp.maximum(count_inc-1,1))%preconditioning_compute_steps==0),matrix_epsilon,shampoo),
+                      state.stats,updates,state.prev_stats,state.preconds,is_leaf=lambda x: type(x).__name__=='CasprLRPair')
+                else:
+                  stat_updates = jax.tree_util.tree_map(
+                      lambda s,u,precondl: update_stats(s.L,s.R,optax.MaskedNode(),precondl.L,u,block_size,b2,
+                      ((jnp.maximum(count_inc-1,1))%preconditioning_compute_steps==0),matrix_epsilon,shampoo),
+                      state.stats,updates,state.preconds,is_leaf=lambda x: type(x).__name__=='CasprLRPair')
                 stats = jax.tree_util.tree_map(lambda x: x.stat, stat_updates,is_leaf=lambda x: type(x).__name__=='UpdateStats')
+                if not shampoo:
+                    prev_stats = jax.tree_util.tree_map(lambda x: x.prev_L, stat_updates,is_leaf=lambda x: type(x).__name__=='UpdateStats')
+                else:
+                    prev_stats = optax.MaskedNode()
 
-                prev_stats = jax.tree_util.tree_map(lambda x: x.prev_L, stat_updates,is_leaf=lambda x: type(x).__name__=='UpdateStats')
-
-                exponent = exponent_override if exponent_override !=0 else 2
+                exponent = exponent_override if exponent_override !=0 else (2 if not shampoo else 4)
                 stats_paddings = jax.tree_util.tree_map(lambda s,u: get_paddings(s,u,block_size), state.stats,updates,is_leaf=lambda x: type(x).__name__=='CasprLRPair')
 
 
@@ -694,7 +734,7 @@ def scale_by_caspr(
                                                                                 relative_epsilon,
                                                                                 inverse_type,
                                                                                 error_tolerance,batch_axis_name),lambda: state.preconds)
-                
+
                 nu_hat = bias_correction(nu, b2, count_inc)
                 def nadam_fn(m,v,g):
                         return  m / (jnp.sqrt(v + eps_root) + eps)
@@ -739,7 +779,8 @@ def efficient_caspr_adaptive_full_matrix_dist_inv_optimized(
         weight_decay: float = 1e-4,
         mask: Optional[Union[Callable[[optax.Params], Any], None]] = None,
         global_grafting: bool = False,
-        batch_axis_name: Any = None
+        batch_axis_name: Any = None,
+        shampoo: bool = False
         ) -> optax.GradientTransformation:
         # Using jax.debug.print to print the parameters
         jax.debug.print("""
@@ -771,7 +812,7 @@ def efficient_caspr_adaptive_full_matrix_dist_inv_optimized(
                         b1, b2, eps, matrix_epsilon, eps_root, block_size,
                         preconditioning_compute_steps, start_preconditioning_step,
                         exponent_override, nesterov, mu_dtype,
-                        caspr_p, relative_epsilon, inverse_type, error_tolerance,global_grafting,batch_axis_name=batch_axis_name),
+                        caspr_p, relative_epsilon, inverse_type, error_tolerance,global_grafting,batch_axis_name=batch_axis_name,shampoo=shampoo),
                 optax.add_decayed_weights(weight_decay, mask),
                 _scale_by_learning_rate(learning_rate),
         )

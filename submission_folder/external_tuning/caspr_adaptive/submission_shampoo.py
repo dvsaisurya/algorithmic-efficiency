@@ -100,6 +100,7 @@ def init_optimizer_state(workload: spec.Workload,
        weight_decay=hyperparameters.weight_decay,
        global_grafting=False,
        batch_axis_name='batch',
+       shampoo=True
      )
   params_zeros_like = jax.tree_map(lambda s: jnp.zeros(s.shape_tuple),
                                    workload.param_shapes)
