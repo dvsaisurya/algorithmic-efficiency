@@ -35,7 +35,7 @@ import numpy as np
 import optax
 import jax.numpy as jnp
 
-# from submission_folder.external_tuning.caspr_adaptive.distributed_shampoo import matrix_inverse_pth_root,mat_power,power_iteration
+from submission_folder.external_tuning.caspr_adaptive.distributed_shampoo import matrix_inverse_pth_root,mat_power,power_iteration
 
 
 
