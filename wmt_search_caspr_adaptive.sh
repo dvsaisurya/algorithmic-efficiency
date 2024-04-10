@@ -2,7 +2,7 @@
 mkdir -p logs
 SETUP_LOG_FILE="logs/setup_log"
 
-bash venv_setup.sh >> ${SETUP_LOG_FILE} 2>&1 
+bash new_setup.sh >> ${SETUP_LOG_FILE} 2>&1 
 
 source env/bin/activate
 

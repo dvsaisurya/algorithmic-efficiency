@@ -45,7 +45,6 @@ keras==2.12.0
 kiwisolver==1.4.5
 lazy_loader==0.3
 libclang==16.0.6
-libtpu-nightly==0.1.dev20230511
 Markdown==3.5.2
 markdown-it-py==3.0.0
 MarkupSafe==2.1.5
