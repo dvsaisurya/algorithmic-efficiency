@@ -1,0 +1,1 @@
+bash wmt_search_caspr_adaptive_modified.sh 6
