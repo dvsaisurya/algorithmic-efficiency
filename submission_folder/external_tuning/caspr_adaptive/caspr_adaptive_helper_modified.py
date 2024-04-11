@@ -183,7 +183,7 @@ def update_stats(L,R,prev_L,precond_L,grad,block_size,b2,fresh_preconds,matrix_e
       if not shampoo:
         coeff = jax.lax.cond(fresh_preconds,
                 lambda: jnp.clip(tr(precond_L,
-                                    regularized_stat(prev_L,
+                                    regularized_stat(L,
                                                     grad,
                                                     block_size,
                                                     matrix_epsilon)@precond_L)[:,:,jnp.newaxis,jnp.newaxis],0,None)/mgd_shape[0],
@@ -212,7 +212,7 @@ def update_stats(L,R,prev_L,precond_L,grad,block_size,b2,fresh_preconds,matrix_e
         M[-1,:] = mgd_shape[0]%block_size  if mgd_shape[0]%block_size!=0 else block_size
         M[:-1,:] = block_size
         coeff = jax.lax.cond(fresh_preconds,
-                                            lambda: jnp.clip(tr(precond_L, regularized_stat(prev_L,
+                                            lambda: jnp.clip(tr(precond_L, regularized_stat(L,
                                                     grad,
                                                     block_size,
                                                     matrix_epsilon)@precond_L)[:,:,jnp.newaxis,jnp.newaxis],0,None)/M[:,:,np.newaxis,np.newaxis],
@@ -242,7 +242,7 @@ def update_stats(L,R,prev_L,precond_L,grad,block_size,b2,fresh_preconds,matrix_e
         M[-1,:] = mgd_shape[0]%block_size  if mgd_shape[0]%block_size!=0 else block_size
         M[:-1,:] = block_size
         coeff = jax.lax.cond(fresh_preconds,
-                                            lambda: jnp.clip(tr(precond_L, regularized_stat(prev_L,
+                                            lambda: jnp.clip(tr(precond_L, regularized_stat(L,
                                                     grad,
                                                     block_size,
                                                     matrix_epsilon)@precond_L)[:,:,jnp.newaxis,jnp.newaxis],0,None)/mgd_shape[0],
@@ -271,7 +271,7 @@ def update_stats(L,R,prev_L,precond_L,grad,block_size,b2,fresh_preconds,matrix_e
         M[-1,:] = mgd_shape[0]%block_size  if mgd_shape[0]%block_size!=0 else block_size
         M[:-1,:] = block_size
         coeff = jax.lax.cond(fresh_preconds,
-                                            lambda: jnp.clip(tr(precond_L, regularized_stat(prev_L,
+                                            lambda: jnp.clip(tr(precond_L, regularized_stat(L,
                                                     grad,
                                                     block_size,
                                                     matrix_epsilon)@precond_L)[:,:,jnp.newaxis,jnp.newaxis],0,None)/M[:,:,np.newaxis,np.newaxis],

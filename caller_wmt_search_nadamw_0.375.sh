@@ -1,0 +1,1 @@
+bash wmt_search_nadamw_0.375.sh 0
