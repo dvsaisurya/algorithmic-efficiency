@@ -57,6 +57,7 @@ class ScaleByCasprState(NamedTuple):
         stats: optax.Updates
         preconds: optax.Updates
         prev_stats: optax.Updates
+        coeffs: optax.Updates
 
 
 class CasprLRPair(NamedTuple):
@@ -180,7 +181,7 @@ def update_stats(L,R,prev_L,precond_L,grad,block_size,b2,fresh_preconds,matrix_e
       assert g1==1 and g2==1
       # jax.debug.print("tr precond_L.precondL.L {x}",x = jnp.trace(precond_L@precond_L@L)/L.shape[-1])
       if not shampoo:
-        coeff = jax.lax.cond(False,
+        coeff = jax.lax.cond(fresh_preconds,
                 lambda: jnp.clip(tr(precond_L,
                                     regularized_stat(prev_L,
                                                     grad,
@@ -210,7 +211,7 @@ def update_stats(L,R,prev_L,precond_L,grad,block_size,b2,fresh_preconds,matrix_e
         M = np.zeros((g1,g2))
         M[-1,:] = mgd_shape[0]%block_size  if mgd_shape[0]%block_size!=0 else block_size
         M[:-1,:] = block_size
-        coeff = jax.lax.cond(False,
+        coeff = jax.lax.cond(fresh_preconds,
                                             lambda: jnp.clip(tr(precond_L, regularized_stat(prev_L,
                                                     grad,
                                                     block_size,
@@ -240,7 +241,7 @@ def update_stats(L,R,prev_L,precond_L,grad,block_size,b2,fresh_preconds,matrix_e
         M = np.zeros((g1,g2))
         M[-1,:] = mgd_shape[0]%block_size  if mgd_shape[0]%block_size!=0 else block_size
         M[:-1,:] = block_size
-        coeff = jax.lax.cond(False,
+        coeff = jax.lax.cond(fresh_preconds,
                                             lambda: jnp.clip(tr(precond_L, regularized_stat(prev_L,
                                                     grad,
                                                     block_size,
@@ -269,7 +270,7 @@ def update_stats(L,R,prev_L,precond_L,grad,block_size,b2,fresh_preconds,matrix_e
         M = np.zeros((g1,g2))
         M[-1,:] = mgd_shape[0]%block_size  if mgd_shape[0]%block_size!=0 else block_size
         M[:-1,:] = block_size
-        coeff = jax.lax.cond(False,
+        coeff = jax.lax.cond(fresh_preconds,
                                             lambda: jnp.clip(tr(precond_L, regularized_stat(prev_L,
                                                     grad,
                                                     block_size,
@@ -290,7 +291,7 @@ def update_stats(L,R,prev_L,precond_L,grad,block_size,b2,fresh_preconds,matrix_e
         L = w1*L + w2*jnp.einsum("ijkl,ijnl->ijkn",grad,grad)
         R = w1*R + w2*jnp.einsum("ijlk,ijln->ijkn",grad,grad)
 
-    return UpdateStats(stat=CasprLRPair(L,R),prev_L=prev_L,coeff=coeff)
+    return UpdateStats(stat=CasprLRPair(L,R),prev_L=prev_L,coeff=coeff[0][0][0][0])
 
 
 def eigh_inverse(stat,padding,exponent=2,epsilon=1e-6,relative_epsilon=True):
@@ -690,14 +691,22 @@ def scale_by_caspr(
 
                   else:
                       return CasprLRPair(L=optax.MaskedNode(),R=optax.MaskedNode()) if state_type in ['stats','preconds'] else optax.MaskedNode()
-
+                
+                def coeff_init(param,state_type='stats'):
+                        if (len(param.shape) > 1 and not sum([dim>5000 for dim in param.shape])):
+                             return jnp.array(1.0)
+                        else:
+                             return optax.MaskedNode()
 
                 stats = jax.tree_util.tree_map(functools.partial(stat_and_precond_init,state_type='stats'), params)
+                coeffs = jax.tree_util.tree_map(functools.partial(coeff_init), params)
                 preconds = jax.tree_util.tree_map(functools.partial(stat_and_precond_init,state_type='preconds'), params)
                 prev_stats = (jax.tree_util.tree_map(functools.partial(stat_and_precond_init,state_type='prev_stats'), params) \
                                 if not shampoo else optax.MaskedNode())
 
-                return ScaleByCasprState(count=jnp.zeros([], jnp.int32), mu=mu, nu=nu, stats=stats, preconds=preconds, prev_stats=prev_stats)
+                return ScaleByCasprState(count=jnp.zeros([], jnp.int32), mu=mu, nu=nu, stats=stats,
+                                        preconds=preconds, prev_stats=prev_stats,
+                                        coeffs=coeffs)
 
 
         def update_fn(updates, state, params=None):
@@ -707,17 +716,21 @@ def scale_by_caspr(
                 count_inc = state.count+1
                 print(state.stats)
                 print(updates)
+                fresh_preconds = ((jnp.maximum(count_inc-1,1))%preconditioning_compute_steps==0)
                 if not shampoo:
                   stat_updates = jax.tree_util.tree_map(
                       lambda s,u,prevl,precondl: update_stats(s.L,s.R,prevl,precondl.L,u,block_size,b2,
-                      ((jnp.maximum(count_inc-1,1))%preconditioning_compute_steps==0),matrix_epsilon,shampoo),
+                      fresh_preconds,matrix_epsilon,shampoo),
                       state.stats,updates,state.prev_stats,state.preconds,is_leaf=lambda x: type(x).__name__=='CasprLRPair')
                 else:
                   stat_updates = jax.tree_util.tree_map(
                       lambda s,u,precondl: update_stats(s.L,s.R,optax.MaskedNode(),precondl.L,u,block_size,b2,
-                      ((jnp.maximum(count_inc-1,1))%preconditioning_compute_steps==0),matrix_epsilon,shampoo),
+                      fresh_preconds,matrix_epsilon,shampoo),
                       state.stats,updates,state.preconds,is_leaf=lambda x: type(x).__name__=='CasprLRPair')
                 stats = jax.tree_util.tree_map(lambda x: x.stat, stat_updates,is_leaf=lambda x: type(x).__name__=='UpdateStats')
+                coeffs = jax.tree_util.tree_map(lambda su: su.coeff, stat_updates,is_leaf=lambda x: type(x).__name__=='UpdateStats')
+                coeffs = jax.tree_util.tree_map(lambda c,statec: jnp.where(fresh_preconds,c,statec),coeffs,state.coeffs)
+                
                 if not shampoo:
                     prev_stats = jax.tree_util.tree_map(lambda x: x.prev_L, stat_updates,is_leaf=lambda x: type(x).__name__=='UpdateStats')
                 else:
@@ -751,7 +764,9 @@ def scale_by_caspr(
                     is_leaf=lambda x: type(x).__name__=='CasprLRPair')
 
                 updates = jax.lax.cond(count_inc>start_preconditioning_step, lambda : caspr_updates, lambda : adam_updates)
-                return updates, ScaleByCasprState(count=count_inc, mu=mu, nu=nu, stats=stats, preconds=preconds, prev_stats=prev_stats)
+                return updates, ScaleByCasprState(count=count_inc, mu=mu, nu=nu, stats=stats, preconds=preconds,
+                                                   prev_stats=prev_stats,
+                                                   coeffs=coeffs)
 
 
         return optax.GradientTransformation(init_fn, update_fn)

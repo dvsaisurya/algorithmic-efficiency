@@ -108,6 +108,7 @@ def init_optimizer_state(workload: spec.Workload,
   return jax_utils.replicate(optimizer_state), opt_update_fn
 
 
+
 @functools.partial(
     jax.pmap,
     axis_name='batch',
@@ -165,6 +166,53 @@ def pmapped_train_step(workload,
   return new_optimizer_state, updated_params, new_model_state, loss, grad_norm
 
 
+def agg_coeffs(new_optimizer_state):
+
+    #code for the target setting, replace Testing with the ScaleByCasprState
+    # print(new_optimizer_state[1])
+    metrics = new_optimizer_state[0].coeffs
+    # print("metrics ",metrics)
+    metrics_flat,tree_def = jax.tree_util.tree_flatten(metrics)
+    # print("metrics_flat " ,metrics_flat)
+    from functools import reduce
+
+
+    
+    # Define a function that will be used to add two corresponding leaves
+    def add_trees(tree1, tree2):
+        # This function will be applied to each leaf
+        def add_leaves(leaf1, leaf2):
+            if type(leaf1)==optax.MaskedNode and type(leaf2)==optax.MaskedNode:
+                return jnp.array(0.0)
+            if type(leaf1)==optax.MaskedNode:
+                return leaf2
+            if type(leaf2)==optax.MaskedNode:
+                return leaf1
+            return leaf1 + leaf2
+        
+        # Use jax.tree_map to apply add_leaves to each leaf in tree1 and tree2
+        # Note that jax.tree_map can only map functions across the leaves of a single pytree,
+        # so we need to use a lambda function to pass additional arguments (like leaf2 from tree2)
+        return jax.tree_util.tree_map(lambda leaf1, leaf2: add_leaves(leaf1, leaf2), tree1, tree2, is_leaf=lambda x: type(x) in [optax.MaskedNode,chex.Array])
+
+    # Assuming you have a list of 100 pytrees
+    # pytrees = [pytree1, pytree2, ..., pytree100]
+
+    # Use functools.reduce to cumulatively apply the add_trees operation across all pytrees
+    aggregated_metrics = reduce(add_trees, metrics_flat)
+    # Use functools.reduce to cumulatively apply the summing operation across all pytrees
+    # aggregated_metrics = reduce(lambda acc, pytree: jax.tree_util.tree_multimap(sum_leaves, acc, pytree), metrics_flat[1:], metrics_flat[0])
+
+    metrics_count = jax.tree_util.tree_map(lambda x: 1.0 if isinstance(x,chex.Array) else 0.0, metrics_flat, is_leaf=lambda x: type(x) in [optax.MaskedNode,chex.Array])
+
+    metrics_count_agg = reduce(add_trees, metrics_count)
+
+    # print(metrics_count)
+    avg_metrics = jax.tree_util.tree_map(lambda x,y: x/y if y!=0.0 else jnp.array(0.0), aggregated_metrics,metrics_count_agg)
+    # print('avg_metrics', avg_metrics)
+    return avg_metrics
+
+
 
 
 def update_params(workload: spec.Workload,
@@ -206,9 +254,19 @@ def update_params(workload: spec.Workload,
   new_optimizer_state, new_params, new_model_state, loss, grad_norm = outputs
   
   if global_step % 100 == 0 and workload.metrics_logger is not None:
-    
-      
-    workload.metrics_logger.append_scalar_metrics(
+    log_metrics=True
+    if log_metrics:
+      coeffs = agg_coeffs(new_optimizer_state)
+      # jax.debug.print('coeffs {x}',x=coeffs)
+    if log_metrics:
+      workload.metrics_logger.append_scalar_metrics(
+          {
+              'loss': loss[0],
+              'coeff': coeffs[0],
+              'grad_norm': grad_norm[0]
+          }, global_step)
+    else:
+      workload.metrics_logger.append_scalar_metrics(
         {
             'loss': loss[0],
             'grad_norm': grad_norm[0]
