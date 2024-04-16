@@ -1314,11 +1314,11 @@ def distributed_shampoo(
     shard_optimizer_states=False,
     ###
     # Experimental memory reduction mode
-    best_effort_memory_usage_reduction=True,
+    best_effort_memory_usage_reduction=False,
     ###
     inverse_failure_threshold=0.1,
     moving_average_for_momentum=True,
-    skip_preconditioning_dim_size_gt=0,
+    skip_preconditioning_dim_size_gt=40000,
     clip_by_scaled_gradient_norm=None,
     precision=lax.Precision.HIGHEST,
     tensordot_precision=None,
@@ -1331,7 +1331,7 @@ def distributed_shampoo(
     skip_preconditioning_rank_lt=1,
     decoupled_learning_rate=True,
     decoupled_weight_decay=False,
-    generate_training_metrics=True,
+    generate_training_metrics=False,
     reuse_preconditioner=False,
     eigh=True,
 ):
@@ -1940,8 +1940,9 @@ def distributed_shampoo(
 
   def init_fn(params):
     """Initialise the optimiser's state."""
-
+    print(params)
     def _init(param):
+      print('param shape',param.shape, 'skip precond?', _skip_preconditioning(param))
       preconditioner = preconditioner_from_params(param)
       statistics = []
       preconditioners = []
@@ -1965,7 +1966,7 @@ def distributed_shampoo(
       # momentum = _quantize_momentum(jnp.zeros_like(param))
       diagonal_momentum = jnp.zeros_like(param)
       momentum = jnp.zeros_like(param)
-
+      print("param ", param.shape, "statistics ", [stat.shape for stat in statistics])
       return ParameterStats(
           diagonal_statistics,
           statistics,
@@ -1979,9 +1980,10 @@ def distributed_shampoo(
               len(statistics),
               generate_training_metrics,
           ))
-
+    stats = jax.tree_map(_init, params)
+    jax.debug.print("stats {stats}",stats=stats)
     return ShampooState(
-        count=jnp.zeros([], jnp.int32), stats=jax.tree_map(_init, params))
+        count=jnp.zeros([], jnp.int32), stats=stats)
 
   def _skip_preconditioning(param):
     return len(param.shape) < skip_preconditioning_rank_lt or any(
@@ -2190,8 +2192,8 @@ def distributed_shampoo(
       new_preconditioners_flat.append(
           _select_preconditioner(error, p[:shape[0], :shape[1]], prev_p))
 
-    assert len(states) == (len(num_statistics_per_state),
-                           f"{len(states)} vs {len(num_statistics_per_state)}")
+    # assert len(states) == (len(num_statistics_per_state),
+    #                        f"{len(states)} vs {len(num_statistics_per_state)}")
     assert len(new_preconditioners_flat) == num_statistics
     assert len(new_errors_flat) == len(packed_statistics), (
         len(new_errors_flat), len(packed_statistics))
