@@ -1,11 +1,14 @@
+mkdir -p logs
+SETUP_LOG_FILE="logs/setup_log"
 
+bash new_setup.sh >> ${SETUP_LOG_FILE} 2>&1 
 
 source env/bin/activate
-mkdir -p logs
+
 #used b3 of 0.8 which is fixed throughout the training and runs caspr_adaptive with hparam_1 for 5 times with different seeds.
-EXP_DIR="/home/saisurya/Projects/algorithmic-efficiency/eff_caspr_hm_adaptive/eff_caspr_hm_adaptive_full_matrix_imagenet_vit_search"
-EXP_NAME="eff_caspr_hm_adaptive_full_matrix_imagenet_vit_search_trial_$1"
-SUBMISSION_PATH="prize_qualification_baselines/external_tuning/efficient_caspr_adaptive_full_matrix_dist_inv_target_setting_imagenet_vit.py"
+EXP_DIR="/home/saisurya/Projects/algorithmic-efficiency/eff_caspr_hm_adaptive_submission"
+EXP_NAME="eff_submission_caspr_hm_adaptive_full_matrix_imagenet_search_$1"
+SUBMISSION_PATH="submission_folder/external_tuning/caspr_adaptive/submission_imagenet.py"
 SEARCH_SPACE_PATH="tuning_search_space_caspr_adaptive_full_matrix_imagenet_indiv_$1.json"
 WORKLOAD="imagenet_vit"
 DATA_DIR="/mnt/disks/imagenetdata/imagenet/jax"
@@ -23,4 +26,4 @@ python3 submission_runner.py \
     --num_tuning_trials=1 \
     --eval_period=1000 \
     --max_global_steps=100000  \
-    --overwrite > ${LOG_FILE} 2>&1 
+    --overwrite >> ${LOG_FILE} 2>&1 
