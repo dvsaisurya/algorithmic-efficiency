@@ -1,13 +1,16 @@
 
-bash venv_setup.sh
+mkdir -p logs
+SETUP_LOG_FILE="logs/setup_log"
+
+bash new_setup.sh >> ${SETUP_LOG_FILE} 2>&1 
 
 source env/bin/activate
-mkdir -p logs
+
 #used b3 of 0.8 which is fixed throughout the training and runs caspr_adaptive with hparam_1 for 5 times with different seeds.
-EXP_DIR="/home/saisurya/Projects/algorithmic-efficiency/eff_caspr_hm_adaptive"
-EXP_NAME="eff_caspr_hm_adaptive_full_matrix_ogbg_search_1_2"
-SUBMISSION_PATH="prize_qualification_baselines/external_tuning/efficient_caspr_adaptive_full_matrix_dist_inv_target_setting.py"
-SEARCH_SPACE_PATH="tuning_search_space_caspr_adaptive_full_matrix_ogbg_1.json"
+EXP_DIR="/home/saisurya/Projects/algorithmic-efficiency/eff_caspr_hm_adaptive_submission"
+EXP_NAME="eff_submission_caspr_hm_adaptive_full_matrix_ogbg_search_$1"
+SUBMISSION_PATH="submission_folder/external_tuning/caspr_adaptive/submission.py"
+SEARCH_SPACE_PATH="caspr_adaptive_ogbg_stack_2_jsons/tuning_search_space_$1.json"
 WORKLOAD="ogbg"
 DATA_DIR="~/data/ogbg"
 RNG_SEED="2"
@@ -21,7 +24,7 @@ python3 submission_runner.py \
     --tuning_search_space=${SEARCH_SPACE_PATH}\
     --data_dir=${DATA_DIR} \
     --rng_seed=${RNG_SEED} \
-    --num_tuning_trials=5 \
+    --num_tuning_trials=10 \
     --eval_period=1000 \
     --max_global_steps=30000  \
-    --overwrite > ${LOG_FILE} 2>&1 &
+    --overwrite >> ${LOG_FILE} 2>&1 &
