@@ -1,0 +1,74 @@
+[
+    {
+        "learning_rate": 0.00010054778177688589,
+        "one_minus_beta1": 0.013477097323359031,
+        "beta2": 0.999,
+        "warmup_factor": 0.05,
+        "weight_decay": 0.012638327613865154,
+        "label_smoothing": 0.1,
+        "dropout_rate": 0.1
+    },
+    {
+        "learning_rate": 0.00010868344914239434,
+        "one_minus_beta1": 0.05095093967496511,
+        "beta2": 0.9,
+        "warmup_factor": 0.05,
+        "weight_decay": 0.1329983427667685,
+        "label_smoothing": 0.1,
+        "dropout_rate": 0.1
+    },
+    {
+        "learning_rate": 0.0009461790736773607,
+        "one_minus_beta1": 0.013944581616283223,
+        "beta2": 0.999,
+        "warmup_factor": 0.05,
+        "weight_decay": 0.0412214361848658,
+        "label_smoothing": 0.1,
+        "dropout_rate": 0.1
+    },
+    {
+        "learning_rate": 0.0019814680146414726,
+        "one_minus_beta1": 0.07758862577375368,
+        "beta2": 0.99,
+        "warmup_factor": 0.05,
+        "weight_decay": 0.010340635370188849,
+        "label_smoothing": 0.1,
+        "dropout_rate": 0.1
+    },
+    {
+        "learning_rate": 0.00019766560226064676,
+        "one_minus_beta1": 0.07004395946742636,
+        "beta2": 0.999,
+        "warmup_factor": 0.05,
+        "weight_decay": 0.012300240728935494,
+        "label_smoothing": 0.1,
+        "dropout_rate": 0.1
+    },
+    {
+        "learning_rate": 0.007657804564479436,
+        "one_minus_beta1": 0.018474843193311084,
+        "beta2": 0.9,
+        "warmup_factor": 0.05,
+        "weight_decay": 0.03599507884441202,
+        "label_smoothing": 0.1,
+        "dropout_rate": 0.1
+    },
+    {
+        "learning_rate": 0.006304156439459244,
+        "one_minus_beta1": 0.08842322859774977,
+        "beta2": 0.9,
+        "warmup_factor": 0.05,
+        "weight_decay": 0.17160921709287533,
+        "label_smoothing": 0.2,
+        "dropout_rate": 0.1
+    },
+    {
+        "learning_rate": 0.009813249295987805,
+        "one_minus_beta1": 0.04320905474501441,
+        "beta2": 0.99,
+        "warmup_factor": 0.05,
+        "weight_decay": 0.040776760432347,
+        "label_smoothing": 0.1,
+        "dropout_rate": 0.1
+    }
+]
