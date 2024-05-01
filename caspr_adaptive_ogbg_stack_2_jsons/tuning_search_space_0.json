@@ -1,28 +1,10 @@
 [
     {
-        "learning_rate": 0.0002366315233112939,
-        "one_minus_beta1": 0.017305996309581857,
-        "beta2": 0.99,
+        "learning_rate": 0.00010352472568688982,
+        "one_minus_beta1": 0.02742330411536369,
+        "beta2": 0.999,
         "warmup_factor": 0.05,
-        "weight_decay": 0.358796133013872,
-        "label_smoothing": 0.2,
-        "dropout_rate": 0.1
-    },
-    {
-        "learning_rate": 0.007657804564479436,
-        "one_minus_beta1": 0.018474843193311084,
-        "beta2": 0.9,
-        "warmup_factor": 0.05,
-        "weight_decay": 0.03599507884441202,
-        "label_smoothing": 0.1,
-        "dropout_rate": 0.1
-    },
-    {
-        "learning_rate": 0.003099451526942006,
-        "one_minus_beta1": 0.06181168275666899,
-        "beta2": 0.9,
-        "warmup_factor": 0.05,
-        "weight_decay": 0.01613145683725297,
+        "weight_decay": 0.14194124966570845,
         "label_smoothing": 0.2,
         "dropout_rate": 0.1
     },
@@ -33,6 +15,24 @@
         "warmup_factor": 0.05,
         "weight_decay": 0.01950318659958426,
         "label_smoothing": 0.1,
+        "dropout_rate": 0.1
+    },
+    {
+        "learning_rate": 0.0002366315233112939,
+        "one_minus_beta1": 0.017305996309581857,
+        "beta2": 0.99,
+        "warmup_factor": 0.05,
+        "weight_decay": 0.358796133013872,
+        "label_smoothing": 0.2,
+        "dropout_rate": 0.1
+    },
+    {
+        "learning_rate": 0.001329868220562242,
+        "one_minus_beta1": 0.10849784490183723,
+        "beta2": 0.99,
+        "warmup_factor": 0.05,
+        "weight_decay": 0.013415189274868547,
+        "label_smoothing": 0.2,
         "dropout_rate": 0.1
     }
 ]

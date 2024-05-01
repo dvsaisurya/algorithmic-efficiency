@@ -1,29 +1,29 @@
 [
     {
-        "learning_rate": 0.0009461790736773607,
-        "one_minus_beta1": 0.013944581616283223,
-        "beta2": 0.999,
+        "learning_rate": 0.007657804564479436,
+        "one_minus_beta1": 0.018474843193311084,
+        "beta2": 0.9,
         "warmup_factor": 0.05,
-        "weight_decay": 0.0412214361848658,
+        "weight_decay": 0.03599507884441202,
         "label_smoothing": 0.1,
         "dropout_rate": 0.1
     },
     {
-        "learning_rate": 0.00013266386376279386,
-        "one_minus_beta1": 0.024338165842659493,
-        "beta2": 0.9,
+        "learning_rate": 0.0034662453048871942,
+        "one_minus_beta1": 0.12329779973031552,
+        "beta2": 0.999,
         "warmup_factor": 0.05,
-        "weight_decay": 0.8731733774313366,
+        "weight_decay": 0.009741818387072209,
         "label_smoothing": 0.2,
         "dropout_rate": 0.1
     },
     {
-        "learning_rate": 0.0004388216202218091,
-        "one_minus_beta1": 0.011926975775142115,
-        "beta2": 0.99,
+        "learning_rate": 0.0005003918088353682,
+        "one_minus_beta1": 0.052868308504766766,
+        "beta2": 0.9,
         "warmup_factor": 0.05,
-        "weight_decay": 0.3977375056989399,
-        "label_smoothing": 0.1,
+        "weight_decay": 0.015615014538597293,
+        "label_smoothing": 0.2,
         "dropout_rate": 0.1
     },
     {

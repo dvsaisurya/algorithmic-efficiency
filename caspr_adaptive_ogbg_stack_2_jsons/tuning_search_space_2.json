@@ -1,5 +1,23 @@
 [
     {
+        "learning_rate": 0.00435632345031001,
+        "one_minus_beta1": 0.039565609666258376,
+        "beta2": 0.9,
+        "warmup_factor": 0.05,
+        "weight_decay": 0.67305554368052,
+        "label_smoothing": 0.2,
+        "dropout_rate": 0.1
+    },
+    {
+        "learning_rate": 0.009813249295987805,
+        "one_minus_beta1": 0.04320905474501441,
+        "beta2": 0.99,
+        "warmup_factor": 0.05,
+        "weight_decay": 0.040776760432347,
+        "label_smoothing": 0.1,
+        "dropout_rate": 0.1
+    },
+    {
         "learning_rate": 0.0019814680146414726,
         "one_minus_beta1": 0.07758862577375368,
         "beta2": 0.99,
@@ -9,29 +27,11 @@
         "dropout_rate": 0.1
     },
     {
-        "learning_rate": 0.0018153997976781942,
-        "one_minus_beta1": 0.015982399575739353,
-        "beta2": 0.9,
-        "warmup_factor": 0.05,
-        "weight_decay": 0.05435484951861185,
-        "label_smoothing": 0.2,
-        "dropout_rate": 0.1
-    },
-    {
-        "learning_rate": 0.001329868220562242,
-        "one_minus_beta1": 0.10849784490183723,
+        "learning_rate": 0.004640611793681601,
+        "one_minus_beta1": 0.04458099897099783,
         "beta2": 0.99,
         "warmup_factor": 0.05,
-        "weight_decay": 0.013415189274868547,
-        "label_smoothing": 0.2,
-        "dropout_rate": 0.1
-    },
-    {
-        "learning_rate": 0.00010054778177688589,
-        "one_minus_beta1": 0.013477097323359031,
-        "beta2": 0.999,
-        "warmup_factor": 0.05,
-        "weight_decay": 0.012638327613865154,
+        "weight_decay": 0.008693223345430781,
         "label_smoothing": 0.1,
         "dropout_rate": 0.1
     },
@@ -45,11 +45,11 @@
         "dropout_rate": 0.1
     },
     {
-        "learning_rate": 0.00019766560226064676,
-        "one_minus_beta1": 0.07004395946742636,
-        "beta2": 0.999,
+        "learning_rate": 0.002551570379975017,
+        "one_minus_beta1": 0.1421215743266082,
+        "beta2": 0.9,
         "warmup_factor": 0.05,
-        "weight_decay": 0.012300240728935494,
+        "weight_decay": 0.08618471752833365,
         "label_smoothing": 0.1,
         "dropout_rate": 0.1
     }
