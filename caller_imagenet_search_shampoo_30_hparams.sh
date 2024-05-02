@@ -1,0 +1,5 @@
+
+bash imagenet_search_shampoo_30_hparams.sh 0
+bash imagenet_search_shampoo_30_hparams.sh 1
+bash imagenet_search_shampoo_30_hparams.sh 2
+bash imagenet_search_shampoo_30_hparams.sh 3
