@@ -1,0 +1,11 @@
+[
+    {
+        "learning_rate": 0.00017934631249680855,
+        "one_minus_beta1": 0.04047534986540376,
+        "beta2": 0.9,
+        "warmup_factor": 0.05,
+        "weight_decay": 0.8874953466044864,
+        "label_smoothing": 0.1,
+        "dropout_rate": 0.1
+    }
+]
