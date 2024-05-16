@@ -9,7 +9,7 @@ source env/bin/activate
 #used b3 of 0.8 which is fixed throughout the training and runs caspr_adaptive with hparam_1 for 5 times with different seeds.
 EXP_DIR="/home/saisurya/Projects/algorithmic-efficiency/eff_caspr_hm_adaptive_submission"
 EXP_NAME="eff_submission_nadamw_ogbg_search_$1"
-SUBMISSION_PATH="/home/saisurya/Projects/algorithmic-efficiency/submission_folder/external_tuning/caspr_adaptive/jax_nadamw_target_setting_0375.py"
+SUBMISSION_PATH="submission_folder/external_tuning/caspr_adaptive/jax_nadamw_target_setting_0375.py"
 SEARCH_SPACE_PATH="caspr_adaptive_ogbg_stack_2_jsons/tuning_search_space_$1.json"
 WORKLOAD="ogbg"
 DATA_DIR="~/data/ogbg"
