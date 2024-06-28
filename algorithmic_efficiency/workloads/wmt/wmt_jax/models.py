@@ -15,7 +15,7 @@ import numpy as np
 @struct.dataclass
 class TransformerConfig:
   """Global hyperparameters used to minimize obnoxious kwarg plumbing."""
-  share_embeddings: bool = True
+  share_embeddings: bool = False
   dtype: Any = jnp.float32
   vocab_size: int = 32000
   emb_dim: int = 1024
@@ -23,6 +23,13 @@ class TransformerConfig:
   num_layers: int = 6
   qkv_dim: int = 1024
   mlp_dim: int = 1024
+  # #####across code####
+  # emb_dim: int = 128
+  # num_heads: int = 16
+  # num_layers: int = 6
+  # qkv_dim: int = 128
+  # mlp_dim: int = 128
+  # ##end across code##
   max_len: int = 256
   activation: Callable = nn.relu
   glu: bool = False
