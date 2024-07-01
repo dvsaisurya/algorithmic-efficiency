@@ -15,7 +15,7 @@ import numpy as np
 @struct.dataclass
 class TransformerConfig:
   """Global hyperparameters used to minimize obnoxious kwarg plumbing."""
-  share_embeddings: bool = False
+  share_embeddings: bool = True
   dtype: Any = jnp.float32
   vocab_size: int = 32000
   emb_dim: int = 1024
@@ -432,6 +432,11 @@ class Decoder(nn.Module):
           embedding_init=nn.initializers.normal(stddev=1.0))
     else:
       output_embed = self.shared_embedding
+    
+    output_embed2 = nn.Embed(
+          num_embeddings=cfg.vocab_size,
+          features=cfg.emb_dim,
+          embedding_init=nn.initializers.normal(stddev=1.0))
 
     y = targets.astype('int32')
     if not cfg.decode:
@@ -461,7 +466,7 @@ class Decoder(nn.Module):
         if cfg.pre_ln else y)
 
     # Use the transpose of embedding matrix for logit transform.
-    logits = output_embed.attend(y.astype(jnp.float32))
+    logits = output_embed2.attend(y.astype(jnp.float32))
     # Correctly normalize pre-softmax logits for this shared case.
     logits = logits / jnp.sqrt(y.shape[-1])
     return logits
