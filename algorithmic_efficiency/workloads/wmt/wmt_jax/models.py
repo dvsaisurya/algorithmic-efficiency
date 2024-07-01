@@ -18,11 +18,11 @@ class TransformerConfig:
   share_embeddings: bool = True
   dtype: Any = jnp.float32
   vocab_size: int = 32000
-  emb_dim: int = 1024
+  emb_dim: int = 128
   num_heads: int = 16
   num_layers: int = 6
-  qkv_dim: int = 1024
-  mlp_dim: int = 1024
+  qkv_dim: int = 128
+  mlp_dim: int = 128
   # #####across code####
   # emb_dim: int = 128
   # num_heads: int = 16

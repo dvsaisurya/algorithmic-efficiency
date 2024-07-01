@@ -27,5 +27,5 @@ python3 submission_runner.py \
     --num_tuning_trials=5 \
     --eval_period=1000 \
     --hparam_start_index=4 \
-    --max_global_steps=100000  \
+    --max_global_steps=5000  \
     --overwrite >> ${LOG_FILE} 2>&1 &

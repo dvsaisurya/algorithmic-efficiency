@@ -73,13 +73,13 @@ def nadamw(
     An (init_fn, update_fn) tuple.
   """
   return optax.chain(
-      scale_by_nadam(b1, b2, eps, eps_root, debias,weight_decay=weight_decay),
-      scale_by_learning_rate(learning_rate))
+      scale_by_nadam(learning_rate,b1, b2, eps, eps_root, debias,weight_decay=weight_decay))
 
 
 # All functions below are forked from
 # github.com/google/init2winit/blob/master/init2winit/optimizer_lib/transform.py
-def scale_by_nadam(b1: float = 0.9,
+def scale_by_nadam(learning_rate,
+                   b1: float = 0.9,
                    b2: float = 0.999,
                    eps: float = 1e-8,
                    eps_root: float = 0.0,
@@ -125,6 +125,7 @@ def scale_by_nadam(b1: float = 0.9,
     #                                                         updates))
     mu = _update_moment(updates, state.mu, b1, 1)
     nu = _update_moment(updates, state.nu, b2, 2)
+    lr = learning_rate(state.count)
     count = state.count + jnp.array(1, dtype=jnp.int32)
     mu_hat = _update_moment(updates, mu, b1, 1)
     mu_hat = mu_hat if not debias else _bias_correction(mu_hat, b1, count)
@@ -163,6 +164,7 @@ def scale_by_nadam(b1: float = 0.9,
     updates_non_embedd = jax.tree_util.tree_map_with_path(
         lambda p,g, param: g + weight_decay * param if not (len(g.shape)>=2 and g.shape[0]>10000 and 'decoder' in [key.key for key in p]) else g, updates, params)
     updates = jax.lax.cond(state.embedding_update, lambda: updates_embedd, lambda: updates_non_embedd)
+    updates = jax.tree_util.tree_map(lambda x: -lr*x, updates)
     # jax.debug.print("updates {x} embedding_update {y} ", x=updates, y=state.embedding_update)
     return updates, ScaleByAdamState(count=new_count, mu=new_mu, nu=new_nu, embedding_update=False)
 
@@ -189,11 +191,11 @@ def _bias_correction(moment, decay, count):
   return jax.tree_map(lambda t: t / beta.astype(t.dtype), moment)
 
 
-def scale_by_learning_rate(learning_rate, flip_sign=True):
-  m = -1 if flip_sign else 1
-  if callable(learning_rate):
-    return optax.scale_by_schedule(lambda count: m * learning_rate(count))
-  return optax.scale(m * learning_rate)
+# def scale_by_learning_rate(learning_rate, flip_sign=True):
+#   m = -1 if flip_sign else 1
+#   if callable(learning_rate):
+#     return optax.scale_by_schedule(lambda count: m * learning_rate(count))
+#   return optax.scale(m * learning_rate)
 
 
 def init_optimizer_state(workload: spec.Workload,
@@ -221,7 +223,8 @@ def init_optimizer_state(workload: spec.Workload,
     return schedule_fn
 
   # Create optimizer + LR schedule.
-  lr_schedule_fn = jax_cosine_warmup(workload.step_hint * 0.75, hyperparameters)
+  # workload.step_hint * 0.75
+  lr_schedule_fn = jax_cosine_warmup(5000, hyperparameters)
   opt_init_fn, opt_update_fn = nadamw(
       learning_rate=lr_schedule_fn,
       b1=1.0 - hyperparameters.one_minus_beta1,
@@ -367,6 +370,7 @@ def update_params(workload: spec.Workload,
         {
             'loss': loss[0],
             'grad_norm': grad_norm[0],
+            'optim_count': new_optimizer_state[0].count[0]
         }, global_step)
   return (new_optimizer_state, opt_update_fn), new_params, new_model_state
 
