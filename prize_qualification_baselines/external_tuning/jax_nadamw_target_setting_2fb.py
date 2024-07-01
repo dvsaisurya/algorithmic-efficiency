@@ -73,8 +73,7 @@ def nadamw(
     An (init_fn, update_fn) tuple.
   """
   return optax.chain(
-      scale_by_nadam(b1, b2, eps, eps_root, debias),
-      optax.add_decayed_weights(weight_decay, weight_decay_mask),
+      scale_by_nadam(b1, b2, eps, eps_root, debias,weight_decay=weight_decay),
       scale_by_learning_rate(learning_rate))
 
 
@@ -85,7 +84,8 @@ def scale_by_nadam(b1: float = 0.9,
                    eps: float = 1e-8,
                    eps_root: float = 0.0,
                    debias: bool = True,
-                   power: float = 0.5) -> optax.GradientTransformation:
+                   power: float = 0.5,
+                   weight_decay: float= 0.0) -> optax.GradientTransformation:
   """Rescale updates according to the NAdam algorithm.
 
   References:
@@ -116,36 +116,54 @@ def scale_by_nadam(b1: float = 0.9,
     return ScaleByAdamState(count=jnp.zeros([], jnp.int32), mu=mu, nu=nu, embedding_update=False)
 
   def update_fn(updates, state, params=None):
-    del params
+
     
-    updates = jax.lax.cond(state.embedding_update,
-                           lambda : jax.tree_util.tree_map(lambda x: x if len(x.shape)>=2 and x.shape[1]>10000 else jnp.zeros_like(x),
-                                                            updates),
-                           lambda : jax.tree_util.tree_map(lambda x: jnp.zeros_like(x) if len(x.shape)>=2 and x.shape[1]>10000 else x,
-                                                            updates))
+    # updates = jax.lax.cond(state.embedding_update,
+    #                        lambda : jax.tree_util.tree_map(lambda x: x if len(x.shape)>=2 and x.shape[1]>10000 else jnp.zeros_like(x),
+    #                                                         updates),
+    #                        lambda : jax.tree_util.tree_map(lambda x: jnp.zeros_like(x) if len(x.shape)>=2 and x.shape[1]>10000 else x,
+    #                                                         updates))
     mu = _update_moment(updates, state.mu, b1, 1)
     nu = _update_moment(updates, state.nu, b2, 2)
     count = state.count + jnp.array(1, dtype=jnp.int32)
     mu_hat = _update_moment(updates, mu, b1, 1)
     mu_hat = mu_hat if not debias else _bias_correction(mu_hat, b1, count)
     nu_hat = nu if not debias else _bias_correction(nu, b2, count)
-    updates = jax.tree_map(
-        lambda m, v: jnp.where(state.embedding_update,jnp.zeros_like(m), m / (raise_power(v + eps_root) + eps)), mu_hat, nu_hat)
+    
+    updates = jax.tree_util.tree_map_with_path(
+        lambda p,m, v: jnp.where(state.embedding_update, 
+                               m / (raise_power(v + eps_root) + eps) if (len(m.shape)>=2 and m.shape[0]>10000 and 'decoder' in [key.key for key in p]) else jnp.zeros_like(m) ,
+                                m / (raise_power(v + eps_root) + eps) if not (len(m.shape)>=2 and m.shape[0]>10000 and 'decoder' in [key.key for key in p]) else jnp.zeros_like(m)),
+                                mu_hat,
+                                nu_hat)
 
-    new_mu_embedd = jax.tree_map(lambda x,y: x if len(x.shape)>=2 and x.shape[1]>10000 else y, mu, state.mu)
+    new_mu_embedd = jax.tree_util.tree_map_with_path(
+                    lambda p,x,y: x if (len(x.shape)>=2 and x.shape[0]>10000 and 'decoder' in [key.key for key in p]) else y, 
+                    mu, state.mu)
 
-    new_mu_non_embedd = jax.tree_map(lambda x,y: x if not (len(x.shape)>=2 and x.shape[1]>10000) else y, mu, state.mu)
+    new_mu_non_embedd = jax.tree_util.tree_map_with_path(
+                    lambda p,x,y: x if not (len(x.shape)>=2 and x.shape[0]>10000 and 'decoder' in [key.key for key in p]) else y, 
+                    mu, state.mu)
 
     new_mu = jax.lax.cond(state.embedding_update, lambda: new_mu_embedd,lambda: new_mu_non_embedd)
 
-    new_nu_embedd = jax.tree_map(lambda x,y: x if len(x.shape)>=2 and x.shape[1]>10000 else y, nu, state.nu)
+    new_nu_embedd = jax.tree_util.tree_map_with_path(lambda p,x,y: x if (len(x.shape)>=2 and x.shape[0]>10000 and 'decoder' in [key.key for key in p]) else y, nu, state.nu)
 
-    new_nu_non_embedd = jax.tree_map(lambda x,y: x if not (len(x.shape)>=2 and x.shape[1]>10000) else y, nu, state.nu)
+    new_nu_non_embedd = jax.tree_util.tree_map_with_path(
+      lambda p,x,y: x if not (len(x.shape)>=2 and x.shape[0]>10000 and 'decoder' in [key.key for key in p]) else y, 
+      nu, state.nu)
 
     new_nu = jax.lax.cond(state.embedding_update, lambda: new_nu_embedd,lambda: new_nu_non_embedd)
 
     
     new_count = jax.lax.cond(state.embedding_update, lambda: state.count, lambda: count)
+    print("updates shapes", updates)
+    updates_embedd = jax.tree_util.tree_map_with_path(
+        lambda p,g, param: g + weight_decay * param if (len(g.shape)>=2 and g.shape[0]>10000 and 'decoder' in [key.key for key in p]) else g, updates, params)
+    updates_non_embedd = jax.tree_util.tree_map_with_path(
+        lambda p,g, param: g + weight_decay * param if not (len(g.shape)>=2 and g.shape[0]>10000 and 'decoder' in [key.key for key in p]) else g, updates, params)
+    updates = jax.lax.cond(False, lambda: updates_embedd, lambda: updates_non_embedd)
+    # jax.debug.print("updates {x} embedding_update {y} ", x=updates, y=state.embedding_update)
     return updates, ScaleByAdamState(count=new_count, mu=new_mu, nu=new_nu, embedding_update=False)
 
   return optax.GradientTransformation(init_fn, update_fn)
@@ -315,11 +333,11 @@ def update_params(workload: spec.Workload,
   optimizer_state = list(optimizer_state)
   
   optim_state = optimizer_state[0]
-  optim_state = ScaleByAdamState(optim_state.count,optim_state.mu,optim_state.nu,optim_state.embedding_update.at[:].set(False))
+  optim_state = ScaleByAdamState(optim_state.count,optim_state.mu,optim_state.nu,optim_state.embedding_update.at[:].set(True))
   
   optimizer_state[0] = optim_state 
   optimizer_state = tuple(optimizer_state)
-
+  # print(optimizer_state[0].embedding_update)
   outputs = pmapped_train_step(workload,
                                opt_update_fn,
                                model_state,
